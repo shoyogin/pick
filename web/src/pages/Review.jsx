@@ -15,6 +15,7 @@ const SHOW = [
   ['ok', 'Marked OK'],
   ['no', 'Marked not OK'],
   ['review', 'Corrected, waiting to be accepted'],
+  ['deleted', 'Deleted'],
   ['commented', 'Has comments'],
   ['unlabeled', 'Missing label file'],
   ['empty', 'Label file, no boxes'],
@@ -82,8 +83,9 @@ export default function Review() {
   }, [reloadSummary])
 
   const done = (summary.ok || 0) + (summary.no || 0) + (summary.review || 0)
+                + (summary.deleted || 0)
   // Rejects and fixes still waiting on approval both stay out of the export.
-  const held = (summary.no || 0) + (summary.review || 0)
+  const held = (summary.no || 0) + (summary.review || 0) + (summary.deleted || 0)
 
   return (
     <div className="flex h-full">
@@ -157,6 +159,7 @@ export default function Review() {
           <Fact label="OK" value={nf(summary.ok || 0)} />
           <Fact label="Review" value={nf(summary.review || 0)} accent="text-review" />
           <Fact label="Not OK" value={nf(summary.no || 0)} accent="text-no" />
+          <Fact label="Deleted" value={nf(summary.deleted || 0)} accent="text-no" />
         </div>
 
         <div className="mt-4 space-y-2">
@@ -254,11 +257,15 @@ const Fact = ({ label, value, accent }) => (
   </div>
 )
 
+// Deleted shares not-OK's red; the pill text and struck filename separate them.
 const PILL = {
   ok: ['OK', 'bg-ok-fill text-ok-ink'],
   no: ['not OK', 'bg-no-fill text-no-ink'],
   review: ['Review', 'bg-review-fill text-review-ink'],
+  deleted: ['Deleted', 'bg-no-fill text-no-ink'],
 }
+
+const OUT = (status) => status === 'no' || status === 'deleted'
 
 function StatusPill({ status }) {
   const pill = PILL[status]
@@ -287,11 +294,11 @@ function Card({ item, classes, version, split, onOpen }) {
     <figure
       onClick={onOpen}
       className={`relative m-0 cursor-pointer rounded-lg border bg-card ${
-        status === 'no' ? 'border-no/40' : 'border-line hover:border-rule'}`}
+        OUT(status) ? 'border-no/40' : 'border-line hover:border-rule'}`}
     >
       <StatusPill status={status} />
       <div className="flex h-40 items-center justify-center overflow-hidden rounded-t-lg bg-stage">
-        <div className={status === 'no' ? 'flex max-h-full max-w-full opacity-45' : 'flex max-h-full max-w-full'}>
+        <div className={OUT(status) ? 'flex max-h-full max-w-full opacity-45' : 'flex max-h-full max-w-full'}>
           <BoxOverlay
             src={imgUrl(version, split, item.name, true)} alt={item.name}
             dim={item.dim} boxes={item.boxes} classes={classes}
@@ -301,8 +308,11 @@ function Card({ item, classes, version, split, onOpen }) {
       <figcaption className={`flex items-center justify-between gap-2 rounded-b-lg border-t border-line px-2.5 py-1.5 text-xs ${
         status === 'ok' ? 'shadow-[inset_3px_0_0_var(--color-ok)]'
         : status === 'no' ? 'shadow-[inset_3px_0_0_var(--color-no)]'
-        : status === 'review' ? 'shadow-[inset_3px_0_0_var(--color-review-fill)]' : ''}`}>
-        <span className="truncate text-ink2">{item.name}</span>
+        : status === 'review' ? 'shadow-[inset_3px_0_0_var(--color-review-fill)]'
+        : status === 'deleted' ? 'shadow-[inset_3px_0_0_var(--color-no)]' : ''}`}>
+        <span className={`truncate text-ink2 ${status === 'deleted' ? 'line-through' : ''}`}>
+          {item.name}
+        </span>
         {notes > 0 && (
           <span className="num flex shrink-0 items-center gap-1 text-muted"
                 title={`${notes} comment${notes === 1 ? '' : 's'}`}>
@@ -361,12 +371,13 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
       if (e.key === 'Escape') onClose()
       if (e.key === '1') { e.preventDefault(); commit('ok') }
       if (e.key === '2') { e.preventDefault(); commit('no') }
+      if (e.key === '3') { e.preventDefault(); commit(status === 'deleted' ? '' : 'deleted') }
       if (e.key === 'ArrowRight') onIndex(Math.min(index + 1, items.length - 1))
       if (e.key === 'ArrowLeft') onIndex(Math.max(index - 1, 0))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [commit, index, items.length, onIndex, onClose])
+  }, [commit, status, index, items.length, onIndex, onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
@@ -454,6 +465,18 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
               </button>
             </div>
 
+            <button
+              onClick={() => commit(status === 'deleted' ? '' : 'deleted')}
+              className={`mt-2 w-full rounded-md border px-3 py-1.5 text-xs ${
+                status === 'deleted'
+                  ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
+                  : 'border-rule bg-card text-ink2 hover:bg-hover hover:text-no'}`}
+            >
+              {status === 'deleted'
+                ? 'Deleted — click to restore'
+                : 'Delete image — keep it out of the dataset'}
+            </button>
+
             <p className={`mt-2 min-h-4 text-[11px] ${error ? 'text-no' : 'text-muted'}`}>
               {error || saved}
             </p>
@@ -481,7 +504,7 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
                     className="rounded border border-line px-2 py-0.5 hover:bg-hover">←</button>
             <button onClick={() => onIndex(Math.min(index + 1, items.length - 1))}
                     className="rounded border border-line px-2 py-0.5 hover:bg-hover">→</button>
-            <span>move · <b>1</b> OK · <b>2</b> not OK · <b>esc</b> close</span>
+            <span>move · <b>1</b> OK · <b>2</b> not OK · <b>3</b> delete · <b>esc</b> close</span>
           </div>
         </div>
       </div>

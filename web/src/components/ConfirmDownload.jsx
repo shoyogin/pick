@@ -43,13 +43,14 @@ export default function ConfirmDownload({ version, className, children }) {
               {nf(ask.unflagged)} of {nf(ask.total)} images are not flagged
             </h2>
             <p className="mt-2 text-sm text-ink2">
-              Some of the images have not been marked OK, Not OK or Review. They
-              will be included in the download exactly as they are on disk.
-              Download the dataset anyway?
+              Some of the images have not been marked OK, Not OK, Review or
+              Deleted. They will be included in the download exactly as they are
+              on disk. Download the dataset anyway?
             </p>
-            <dl className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
+            <dl className="mt-3 grid grid-cols-5 gap-2 text-center text-xs">
               {[['OK', ask.ok, 'text-ok'], ['Not OK', ask.no, 'text-no'],
                 ['Review', ask.review, 'text-review'],
+                ['Deleted', ask.deleted, 'text-no'],
                 ['Unflagged', ask.unflagged, 'text-muted']].map(([l, n, tone]) => (
                 <div key={l} className="rounded-md border border-line py-1.5">
                   <dt className="text-muted">{l}</dt>

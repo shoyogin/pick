@@ -56,9 +56,10 @@ _scan_cache = {}
 _flag_lock = threading.Lock()
 _flags = {}          # (version, split) -> {image: entry}
 
-# "review" = redrawn, waiting on a second pair of eyes. "fix"/"drop" are what
-# older logs wrote; both read back as "no".
-STATUSES = ("ok", "no", "review")
+# "review" = redrawn, waiting on a second pair of eyes. "deleted" = should not
+# be in the dataset at all; nothing is removed from disk, the export just leaves
+# it out. "fix"/"drop" are what older logs wrote; both read back as "no".
+STATUSES = ("ok", "no", "review", "deleted")
 LEGACY_STATUS = {"fix": "no", "drop": "no"}
 
 # Reserved comment id for the single inline note older logs wrote on the verdict.
@@ -671,7 +672,7 @@ def delete_comment(version, split, image, cid, reviewer):
 
 
 # What an export leaves behind. An approved fix is "ok" by then and ships.
-HELD_BACK = ("no", "review")
+HELD_BACK = ("no", "review", "deleted")
 
 
 def rejected(version: str, statuses=HELD_BACK):
@@ -828,7 +829,8 @@ def exclusion_manifest(version, rej):
         f"# {version} — filtered export",
         built_line(),
         f"# {n} image{'' if n == 1 else 's'} held back after review",
-        "# status no = rejected; review = corrected, still waiting to be accepted",
+        "# status: no = rejected; review = corrected, awaiting acceptance; "
+        "deleted = should not be in the dataset",
         "",
         "split,image,status,reviewer,timestamp,comments",
     ]

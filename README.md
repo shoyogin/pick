@@ -127,8 +127,8 @@ corrected dataset exists only in the file you download.
 ## Downloading a cleaned version
 
 *Download reviewed dataset* streams the version as a zip with the corrected
-labels in place of the originals, and with every image still marked not OK or
-Review — and its label file — left out. Two receipts travel inside:
+labels in place of the originals, and with every image marked not OK, Review or
+Deleted — and its label file — left out. Two receipts travel inside:
 `EXCLUDED.csv` for what was held back and why, and `CORRECTED.csv` for which
 labels were redrawn and by whom. The dataset itself is untouched.
 
