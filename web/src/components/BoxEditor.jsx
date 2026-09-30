@@ -7,16 +7,11 @@ import {
 const GRAB = 9        // handle grab radius, in screen pixels
 
 /**
- * The image with its boxes, editable.
+ * The image with its boxes, editable. Separate from BoxOverlay because every
+ * box needs a hit area and eight handles, and the frame owns the pointer.
  *
- * BoxOverlay stays what it is — the read-only drawing used on cards and in the
- * viewer. This is its own component because interaction changes everything
- * about the markup: every box needs a hit area and eight handles, and the
- * frame needs to own the pointer.
- *
- * All geometry is normalised against the frame's own rectangle, so the editor
- * is correct at any size and the boxes never need to know how big the image is
- * being displayed.
+ * Geometry is normalised against the frame's own rectangle, so it is correct
+ * at any display size.
  */
 export default function BoxEditor({
   src, alt, dim, boxes, classes, cls, selected, onSelect, onChange,
@@ -37,8 +32,8 @@ export default function BoxEditor({
     const { x, y, pad } = at(e)
     e.currentTarget.setPointerCapture(e.pointerId)
 
-    // A handle on the selected box wins over everything: it sits on the
-    // boundary, where a plain hit test would read as the box behind it.
+    // Handles win over boxes: they sit on the boundary, where a plain hit
+    // test would read as whatever is behind.
     if (selected >= 0 && boxes[selected]) {
       const h = hitHandle(boxes[selected], x, y, pad)
       if (h) {
@@ -49,13 +44,12 @@ export default function BoxEditor({
     const i = hitBox(boxes, x, y)
     if (i >= 0) {
       onSelect(i)
-      // The box as it was when the drag began, plus the total offset since.
-      // Deriving each frame from the last would drift whenever a pointermove
-      // outruns a render — which it does, on a trackpad.
+      // The box as it was at drag start, plus the total offset since.
+      // Deriving each frame from the last drifts when a pointermove outruns
+      // a render, which it does on a trackpad.
       return setDrag({ kind: 'move', i, x0: x, y0: y, start: boxes[i] })
     }
-    // Empty space: start drawing. The box is created at zero size and grows
-    // with the drag, so a click that never moves leaves nothing behind.
+    // Empty space: start drawing.
     onSelect(-1)
     setDrag({ kind: 'draw', x0: x, y0: y, x, y })
   }
@@ -72,8 +66,7 @@ export default function BoxEditor({
     next[drag.i] = drag.kind === 'move'
       ? moveBox(drag.start, x - drag.x0, y - drag.y0)
       : resizeBox(drag.start, drag.handle, x, y)
-    // Every frame of the gesture replaces the last on the undo stack, so one
-    // drag is one step back rather than a hundred.
+    // Quiet: one drag is one undo step, not a hundred.
     onChange(next, { quiet: true })
   }
 
@@ -128,9 +121,8 @@ export default function BoxEditor({
               top: `${r.y0 * 100}%`,
               width: `${(r.x1 - r.x0) * 100}%`,
               height: `${(r.y1 - r.y0) * 100}%`,
-              // The selected box gains a ring instead of changing colour: its
-              // hue is its class, and losing that to show selection would make
-              // the one box you are working on the one you cannot identify.
+              // A ring, not a colour change: the hue is the class, and losing
+              // it would make the box you are editing the unidentifiable one.
               boxShadow: on
                 ? '0 0 0 1px var(--color-page), 0 0 0 3px var(--color-ink)'
                 : '0 0 0 1px rgba(255,255,255,.65)',
@@ -172,18 +164,15 @@ export default function BoxEditor({
   )
 }
 
-/** Boxes with an undo stack. Kept beside the editor because undo is a property
- *  of the editing session, not of the component that draws rectangles.
- *
- *  A drag calls back on every pointer move; those arrive `quiet` and replace
- *  the top of the stack instead of pushing onto it, so one gesture is one step
- *  back and ⌘Z does not crawl through a hundred intermediate positions. */
+/** Boxes with an undo stack. A drag calls back on every pointer move; those
+ *  arrive `quiet` and replace the top of the stack rather than pushing, so one
+ *  gesture is one step back. */
 export function useBoxHistory(initial, key) {
   const [stack, setStack] = useState([initial])
   const [at, setAt] = useState(0)
 
-  // Keyed on the image, not on the array: a parent that rebuilds its props on
-  // every render would otherwise wipe the history continuously.
+  // Keyed on the image, not the array: a parent rebuilding props every render
+  // would otherwise wipe the history continuously.
   useEffect(() => { setStack([initial]); setAt(0) }, [key])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const boxes = stack[at]

@@ -7,11 +7,9 @@ import { nf, splitLabel, when } from '../lib/format'
 import { useData } from '../lib/store'
 
 /**
- * The repair bench: every image review turned down, with its boxes editable.
- *
- * Saving a redraw does not pass a verdict — the server moves the image to
- * "review" and it waits there for somebody else to accept it. That is the whole
- * point of the tab, so the accept button lives on Review, not here.
+ * Every image review turned down, with its boxes editable. Saving does not pass
+ * a verdict: the server moves the image to "review" and somebody else accepts
+ * it, so the accept button lives on Review, not here.
  */
 export default function Fix() {
   const { version, stats, meta } = useData()

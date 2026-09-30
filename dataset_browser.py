@@ -5,21 +5,16 @@ Dataset Browser — JSON API + static host for the React review UI.
 Usage:
     python3 dataset_browser.py /srv/data/datasets --port 8800 --web web/dist
 
-Expects:
-    <root>/<version>/images/<split>/*.jpg
-    <root>/<version>/labels/<split>/*.txt
-    <root>/<version>/classes.txt        (optional, for class names)
-    <root>/<version>/data.yaml          (optional, same, used if there is no
-                                         classes.txt)
+Expects, at any depth up to VERSION_DEPTH under the root:
+    <version>/images/<split>/*.jpg
+    <version>/labels/<split>/*.txt
+    <version>/classes.txt        (optional; data.yaml is the fallback)
 
-Review flags are written to a SEPARATE directory (--review), never into the
-dataset. Each version/split gets an append-only JSONL log, so nothing is ever
-overwritten and you keep the full history of who changed what.
-
-A review verdict is "ok" or "no", and any image can carry a thread of comments
-from any number of reviewers. Downloads can exclude every image marked "no",
-which is how a cleaned-up version of the dataset is produced — the source tree
-is never modified.
+Verdicts ("ok", "no", "review"), comments and redrawn boxes go to an
+append-only JSONL log per version/split under --review, never into the dataset.
+Downloads apply the review: rejects and unaccepted fixes are left out and
+corrected labels are substituted in, so a cleaned-up version exists only in the
+zip you downloaded.
 
 Dependencies: none (stdlib only). Pillow is used for thumbnails if present.
 This server never writes to the dataset root. It opens files read-only.
@@ -61,10 +56,8 @@ _scan_cache = {}
 _flag_lock = threading.Lock()
 _flags = {}          # (version, split) -> {image: entry}
 
-# A verdict is a keep/reject decision. "review" sits between the two: somebody
-# redrew the boxes and the fix is waiting for a second pair of eyes. "fix" and
-# "drop" are what older logs on the NUC wrote; both mean "not ok" and fold into
-# "no" when read back.
+# "review" = redrawn, waiting on a second pair of eyes. "fix"/"drop" are what
+# older logs wrote; both read back as "no".
 STATUSES = ("ok", "no", "review")
 LEGACY_STATUS = {"fix": "no", "drop": "no"}
 
@@ -72,21 +65,22 @@ LEGACY_STATUS = {"fix": "no", "drop": "no"}
 NOTE_ID = "note"
 COMMENT_MAX = 2000
 
-# What gets written when --user-header is set but the proxy sent no identity.
-# Those comments belong to nobody, so anyone may edit or delete them — the
-# alternative is a thread of orphans that no reviewer can ever clean up.
+# Written when --user-header is set but the proxy sent no identity. Nobody owns
+# these, so anyone may clean them up — otherwise they are orphans forever.
 UNOWNED = "unauthenticated"
 _warned_no_identity = False
 
-# The dataset is mounted read-only and this server never writes to it, so a
-# corrected label file lives in the review log and is substituted into the zip
-# at download time. One image's worth; a dense frame is a few KB.
+# The dataset is read-only, so corrected labels live in the review log and are
+# substituted into the zip at download time.
 BOXES_MAX = 1000
 MIN_SIDE = 0.002     # a box thinner than this is a slipped click, not a label
 
-# Every route that accepts a body, and how much of one. A relabel carries a
-# whole image's geometry; a verdict carries a word. They do not need the same
-# ceiling, and one generous limit everywhere would only widen the others.
+# Folder levels below the root to search for versions: flat, grouped, and one
+# level beyond, without turning a deep tree into a long walk.
+VERSION_DEPTH = 3
+
+# Per-route body limits: a relabel carries a whole image's geometry, a verdict
+# carries a word. One generous limit everywhere would only widen the others.
 POST_MAX = {
     "/api/flag": 64_000,
     "/api/comment": 64_000,
@@ -119,12 +113,49 @@ def rel_path(raw: str) -> Path:
 
 
 def list_versions():
+    """Every version under the root, as a path relative to it.
+
+    A version is any folder holding an `images/` directory, so a root can be
+    flat (`v1`), grouped (`online/v1`), or both. The walk stops at each version
+    rather than reading the thousands of entries inside `images/`.
+    """
     out = []
-    for d in sorted(ROOT.iterdir(), key=lambda x: x.name):
-        if d.is_dir() and not d.name.startswith("."):
+
+    def walk(d: Path, rel: Path, depth: int):
+        try:
             if (d / "images").is_dir():
-                out.append(d.name)
+                out.append(str(rel).replace("\\", "/"))
+                return
+            if depth >= VERSION_DEPTH:
+                return
+            for child in sorted(d.iterdir(), key=lambda x: x.name):
+                if child.is_dir() and not child.name.startswith("."):
+                    walk(child, rel / child.name, depth + 1)
+        except OSError:
+            return
+
+    try:
+        for child in sorted(ROOT.iterdir(), key=lambda x: x.name):
+            if child.is_dir() and not child.name.startswith("."):
+                walk(child, Path(child.name), 1)
+    except OSError:
+        pass
     return out
+
+
+def version_of(rel: Path) -> str:
+    """The version a path is inside, or "". Walks up, so the version folder and
+    anything under it resolve alike."""
+    parts = list(rel.parts)
+    while parts:
+        cand = Path(*parts)
+        try:
+            if (safe_under_root(cand) / "images").is_dir():
+                return str(cand).replace("\\", "/")
+        except (OSError, PermissionError):
+            return ""
+        parts.pop()
+    return ""
 
 
 def list_splits(version: str):
@@ -139,15 +170,11 @@ def list_splits(version: str):
 
 
 def parse_classes_txt(text: str):
-    """One class per line. Accepts bare names and index-prefixed names.
+    """One class per line, bare ("car") or index-prefixed ("0 car", "0: car").
 
-        car              0 car            0: car
-        person           1 person         1, person
-
-    Blank lines and # comments are skipped. The indices are only believed when
-    every line carries one — a half-indexed file is far more likely to be plain
-    names that happen to start with a digit, and reading those as indices would
-    scramble the whole list.
+    Indices are only believed when every line carries one: a half-indexed file
+    is more likely plain names that happen to start with a digit, and reading
+    those as indices would scramble the list.
     """
     rows = []
     for line in text.splitlines():
@@ -156,8 +183,8 @@ def parse_classes_txt(text: str):
             continue
         m = re.match(r"^(\d+)[\s:,]+(.+)$", line)
         idx = int(m.group(1)) if m else None
-        # Two readings of "747 jet": index 747 named "jet", or a class actually
-        # called "747 jet". Keep both until the whole file says which it is.
+        # "747 jet" is either index 747 named "jet" or a class called "747 jet".
+        # Keep both readings until the whole file says which.
         rows.append((idx, m.group(2).strip().strip("'\"") if m else "",
                      line.strip("'\"")))
     if not rows:
@@ -193,33 +220,33 @@ def parse_data_yaml(text: str):
     return []
 
 
-# Where class names come from, best first. classes.txt wins over data.yaml —
-# it is what the labelling tools write and what people edit by hand, so when
-# the two disagree it is the one that matches the label files. A copy at the
-# dataset root covers every version that does not carry its own.
+# Best first. classes.txt wins over data.yaml: it is what the labelling tools
+# write, so when the two disagree it is the one matching the label files.
 CLASS_SOURCES = (
-    ("classes.txt", parse_classes_txt, True),
-    ("labels/classes.txt", parse_classes_txt, True),
-    ("data.yaml", parse_data_yaml, True),
-    ("data.yml", parse_data_yaml, True),
-    ("dataset.yaml", parse_data_yaml, True),
-    ("classes.txt", parse_classes_txt, False),   # shared, at the dataset root
+    ("classes.txt", parse_classes_txt),
+    ("labels/classes.txt", parse_classes_txt),
+    ("data.yaml", parse_data_yaml),
+    ("data.yml", parse_data_yaml),
+    ("dataset.yaml", parse_data_yaml),
 )
 
 
 def read_classes(version: str):
-    """(names, where they came from). Empty list and "" when nothing is found."""
-    for name, parse, in_version in CLASS_SOURCES:
-        rel = Path(version) / name if in_version else Path(name)
-        try:
-            f = safe_under_root(rel)
-            if not f.is_file():
+    """(names, source). The version's folder first, then each folder above it,
+    so a group can share one classes.txt and a version can override it."""
+    # Path("online/t0.0.0").parents is [online, .], which is exactly the walk up.
+    for base in [Path(version), *Path(version).parents]:
+        for name, parse in CLASS_SOURCES:
+            rel = Path(name) if str(base) == "." else base / name
+            try:
+                f = safe_under_root(rel)
+                if not f.is_file():
+                    continue
+                names = parse(f.read_text(encoding="utf-8", errors="replace"))
+            except (OSError, PermissionError):
                 continue
-            names = parse(f.read_text(encoding="utf-8", errors="replace"))
-        except (OSError, PermissionError):
-            continue
-        if names:
-            return names, str(rel).replace("\\", "/")
+            if names:
+                return names, str(rel).replace("\\", "/")
     return [], ""
 
 
@@ -304,8 +331,7 @@ def stats_for(version: str):
     split_counts = {}
     for sp in list_splits(version):
         items = scan(version, sp)
-        # Count what the version would export, not what is on disk: an image
-        # whose boxes were redrawn is counted as redrawn.
+        # Count what the version would export, not what is on disk.
         flags = load_flags(version, sp)
         splits[sp] = len(items)
         total += len(items)
@@ -373,9 +399,8 @@ def review_path(version: str, split: str) -> Path:
 
 
 def blank_entry():
-    """What the log replays into: a verdict, a thread of comments, and the
-    corrected boxes if anyone has redrawn them. `boxes` None means nobody has —
-    the label file on disk still speaks for the image."""
+    """What the log replays into. `boxes` None means nobody redrew them and the
+    label file on disk still speaks for the image."""
     return {"status": "", "reviewer": "", "ts": "", "comments": {},
             "boxes": None, "boxes_by": "", "boxes_ts": ""}
 
@@ -384,8 +409,8 @@ def replay(entry, rec):
     """Fold one log line into an image's entry. Called in file order."""
     if rec.get("kind") == "labels":
         boxes = rec.get("boxes")
-        # A null reverts to the dataset's own file rather than erasing history:
-        # the line that drew them is still in the log above this one.
+        # A null reverts to the dataset's own file; the line that drew them is
+        # still in the log above this one.
         entry["boxes"] = None if boxes is None else [list(b) for b in boxes]
         entry["boxes_by"] = "" if boxes is None else rec.get("reviewer", "")
         entry["boxes_ts"] = "" if boxes is None else rec.get("ts", "")
@@ -398,10 +423,8 @@ def replay(entry, rec):
         if rec.get("deleted"):
             entry["comments"].pop(cid, None)
         else:
-            # An id already in the thread means an edit. Keep the original
-            # author and time — a reworded comment is the same comment, and
-            # re-dating it would shuffle the thread out from under whoever is
-            # reading it — and remember that it was changed.
+            # An id already present is an edit: keep the original author and
+            # time so a reword does not reshuffle the thread.
             was = entry["comments"].get(cid)
             entry["comments"][cid] = {
                 "id": cid,
@@ -417,11 +440,10 @@ def replay(entry, rec):
     entry["reviewer"] = rec.get("reviewer", "")
     entry["ts"] = rec.get("ts", "")
 
-    # Logs written before threads existed carried the reason inline on the
-    # verdict: one note per image, the last one winning. Give it a reserved
-    # slot in the thread so re-saves of a note being typed collapse into the
-    # single comment they always were, instead of stacking up as drafts.
-    # Verdicts written since carry no "note" key at all and leave the thread be.
+    # Logs written before threads existed carried the reason inline, one note
+    # per image, last one winning. A reserved slot reproduces that exactly, so
+    # a note re-saved while being typed is one comment, not a pile of drafts.
+    # Verdicts written since carry no "note" key and leave the thread alone.
     if "note" in rec:
         note = rec.get("note") or ""
         if note:
@@ -466,12 +488,9 @@ def thread(entry):
 
 
 def flag_view(entry):
-    """The shape the API hands out. Never the internal entry: its comments are
-    a dict keyed by id, which is replay bookkeeping the client has no use for.
-
-    `corrected_by` is what the four-eyes rule turns on, so the client can grey
-    out the accept button for the person who drew them and name whoever else
-    the image is waiting on."""
+    """The shape the API hands out — never the internal entry, whose comments
+    are a dict keyed by id. `corrected_by` is what the four-eyes rule turns on,
+    so the client can grey out the accept button for whoever drew the boxes."""
     return {"status": entry["status"], "reviewer": entry["reviewer"],
             "ts": entry["ts"], "comments": thread(entry),
             "corrected": entry["boxes"] is not None,
@@ -483,9 +502,8 @@ def flag_of(version, split, image):
 
 
 def merged_boxes(item, entry):
-    """The boxes that count for one image: a reviewer's redraw if there is one,
-    otherwise what the label file on disk says. The single place corrections
-    are applied, so the grid, the stats and the download cannot disagree."""
+    """A redraw if there is one, else the label file. The single place
+    corrections are applied, so grid, stats and download cannot disagree."""
     if entry is not None and entry["boxes"] is not None:
         return entry["boxes"]
     return item["boxes"]
@@ -498,8 +516,7 @@ def label_text(boxes):
 
 
 def merged_item(item, entry):
-    """One scanned image with its review state folded in, as the API hands it
-    out. A corrected image reports the boxes it will actually ship with."""
+    """One scanned image with its review state folded in."""
     boxes = merged_boxes(item, entry)
     return dict(item, boxes=boxes,
                 labeled=item["labeled"] or (entry is not None
@@ -508,9 +525,9 @@ def merged_item(item, entry):
 
 
 def comment_digest(entry):
-    """Every comment on one image, flattened into a single CSV cell. Authors are
-    spelled out per comment: the row's own reviewer column is the person who
-    passed the verdict, which need not be the person who explained it."""
+    """Comments flattened into one CSV cell. Authors are spelled out per
+    comment: the row's reviewer column is whoever passed the verdict, which
+    need not be whoever explained it."""
     return " | ".join(f"{c['reviewer'] or 'anon'}: {c['text']}" for c in thread(entry))
 
 
@@ -524,8 +541,8 @@ def append_record(version, split, rec):
             fh.write(line)
             fh.flush()
             os.fsync(fh.fileno())
-        # Only touch a split already in the cache. Seeding it here would leave
-        # a one-record dict standing in for a log full of earlier verdicts.
+        # Only touch a split already cached: seeding it here would leave a
+        # one-record dict standing in for a log full of earlier verdicts.
         cached = _flags.get((version, split))
         if cached is not None:
             replay(cached.setdefault(rec["image"], blank_entry()), rec)
@@ -536,9 +553,8 @@ def append_flag(version, split, image, status, reviewer):
     if status not in STATUSES + ("",):
         raise ValueError("bad status")
     if status == "ok":
-        # Four eyes: nobody signs off their own redraw. Marking it "no" stays
-        # open to them — that withdraws a fix, which only ever takes an image
-        # out of the export, and refusing it would strand their own mistake.
+        # Four eyes: nobody signs off their own redraw. "no" stays open to
+        # them — withdrawing a fix only ever takes an image out of the export.
         entry = load_flags(version, split).get(image)
         drew = entry["boxes_by"] if entry and entry["boxes"] is not None else ""
         if drew and drew == (reviewer or "anon"):
@@ -566,11 +582,8 @@ def owned_comment(version, split, image, cid, reviewer):
 
 
 def clean_boxes(raw):
-    """Validate client-drawn boxes into [cls, xc, yc, w, h] rows.
-
-    This ends up as a label file inside somebody's download, so it is checked
-    rather than trusted: finite numbers, a real class index, and a box that
-    actually lies on the image."""
+    """Validate client-drawn boxes into [cls, xc, yc, w, h] rows. This becomes
+    a label file inside somebody's download, so it is checked, not trusted."""
     if not isinstance(raw, list):
         raise ValueError("boxes must be a list")
     if len(raw) > BOXES_MAX:
@@ -588,8 +601,7 @@ def clean_boxes(raw):
             raise ValueError("box values must be finite")
         if not 0 <= c <= 9999:
             raise ValueError("class index out of range")
-        # Clamp to the frame rather than rejecting: a drag that ran off the
-        # edge of the image is a normal gesture, not a bad request.
+        # Clamp rather than reject: a drag off the edge is a normal gesture.
         w, h = min(max(w, MIN_SIDE), 1.0), min(max(h, MIN_SIDE), 1.0)
         x, y = min(max(x, w / 2), 1 - w / 2), min(max(y, h / 2), 1 - h / 2)
         out.append([c, round(x, 6), round(y, 6), round(w, 6), round(h, 6)])
@@ -597,9 +609,8 @@ def clean_boxes(raw):
 
 
 def append_labels(version, split, image, boxes, reviewer):
-    """Store a redraw, then flip the image to "review" waiting for a second
-    opinion. Boxes first: a crash between the two lines leaves a correction
-    nobody has claimed, never a "review" with nothing behind it."""
+    """Store a redraw, then flip the image to "review". Boxes first: a crash
+    between the two leaves an unclaimed correction, never an empty "review"."""
     who = (reviewer or "anon")[:64]
     append_record(version, split, {
         "kind": "labels",
@@ -624,8 +635,8 @@ def revert_labels(version, split, image, reviewer):
         "boxes": None,
         "reviewer": who,
     })
-    # Back to "not OK": that is the state it was in before anyone fixed it, and
-    # leaving it in "review" would queue an approval with no redraw to approve.
+    # Back to "not OK": leaving it in "review" would queue an approval with no
+    # redraw to approve.
     return append_flag(version, split, image, "no", who)
 
 
@@ -659,8 +670,7 @@ def delete_comment(version, split, image, cid, reviewer):
     })
 
 
-# What an export leaves behind: rejects, and fixes still waiting on a second
-# pair of eyes. An approved fix is "ok" by then and ships like anything else.
+# What an export leaves behind. An approved fix is "ok" by then and ships.
 HELD_BACK = ("no", "review")
 
 
@@ -695,8 +705,7 @@ def review_csv(version):
     rows = ["version,split,image,status,reviewer,timestamp,comments"]
     for sp in list_splits(version):
         for img, r in sorted(load_flags(version, sp).items()):
-            # A comment with no verdict still belongs in the export: somebody
-            # wrote down something about that image.
+            # A comment with no verdict still belongs in the export.
             if not r.get("status") and not r["comments"]:
                 continue
             rows.append(",".join(csv_cell(x) for x in (
@@ -856,12 +865,10 @@ def label_arc(split: str, stem: str) -> str:
 
 
 def download_plan(version):
-    """(skip, extra) for a reviewed export.
-
-    Two jobs in one pass over the log: drop the images review held back, and
-    swap in the labels review redrew. A corrected file is written from `extra`
-    at the arcname its original would have had, so `skip` has to drop that
-    original too or the zip would carry the same path twice."""
+    """(skip, extra) for a reviewed export: drop what review held back, and
+    swap in the labels it redrew. A corrected file is written from `extra` at
+    the arcname its original would have had, so `skip` must drop that original
+    too or the zip would carry the same path twice."""
     rej, fix = rejected(version), corrected(version)
     if not rej and not fix:
         return None, {}
@@ -885,8 +892,7 @@ def download_plan(version):
                 return True
             return parts[0] == "labels" and stem in replaced.get(split, set())
         # Base is already inside one split, so the split is not in the path.
-        # Corrections are keyed by split and cannot be placed here, and this
-        # download is one folder rather than a version, so only rejects apply.
+        # Corrections are keyed by split, so only rejects can apply here.
         return stem in flat
 
     if rej:
@@ -948,7 +954,9 @@ class Handler(BaseHTTPRequestHandler):
         if not base.is_dir():
             return self._send(404, b"not found", "text/plain")
 
-        version = rel.parts[0] if rel.parts and str(rel) != "." else ""
+        # Not rel.parts[0]: with a grouped root that is the group ("online"),
+        # not the version, and the review would be looked up against nothing.
+        version = version_of(rel)
         name = rel.parts[-1] if rel.parts and str(rel) != "." else "dataset"
         skip, extra = None, {}
         if exclude and version:
@@ -1025,15 +1033,14 @@ class Handler(BaseHTTPRequestHandler):
                     "comment_max": COMMENT_MAX,
                     "writable": os.access(REVIEW, os.W_OK) if REVIEW.exists() else False,
                     "user": (self.headers.get(USER_HEADER) or "") if USER_HEADER else None,
-                    # Set but empty means the proxy is configured and silent —
-                    # a misconfiguration the UI should not let pass unmentioned.
+                    # Set but empty = proxy configured and silent, which the
+                    # UI must not let pass unmentioned.
                     "user_header": USER_HEADER,
                 })
             if u.path == "/api/review/summary":
                 out, seen = {}, 0
-                # Count only images that are still on disk: a verdict left in
-                # the log for a file since deleted must not make the totals
-                # claim more reviewed images than the version has.
+                # Only images still on disk: a verdict left in the log for a
+                # deleted file must not inflate the totals.
                 for sp in list_splits(q["v"]):
                     flags = load_flags(q["v"], sp)
                     for it in scan(q["v"], sp):
@@ -1046,8 +1053,7 @@ class Handler(BaseHTTPRequestHandler):
                 out["unflagged"] = max(total - seen, 0)
                 return self._json(out)
             if u.path == "/api/queue":
-                # The fix queue thinks in versions, not splits: the images
-                # waiting for work are wherever they happen to live.
+                # The queue thinks in versions, not splits.
                 want = {s for s in q.get("status", "no,review").split(",") if s}
                 out = []
                 for sp in list_splits(q["v"]):
@@ -1140,8 +1146,8 @@ class Handler(BaseHTTPRequestHandler):
         return body["v"], body["split"], body["image"], who
 
     def _warn_no_identity(self):
-        """Say so once, loudly. Getting this wrong is silent otherwise: every
-        verdict and comment is still saved, just filed under nobody."""
+        """Once, loudly: otherwise this is silent and everything is still
+        saved, just filed under nobody."""
         global _warned_no_identity
         if _warned_no_identity:
             return
@@ -1182,9 +1188,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "missing id"}, 400)
                 delete_comment(v, sp, img, cid, who)
 
-            # The whole thread comes back, so a client that missed somebody
-            # else's comment catches up on its next write instead of drifting.
-            # A relabel also answers with the boxes that are now current.
+            # The whole thread comes back, so a client that missed someone
+            # else's comment catches up on its next write.
             out = {"ok": True, "flag": flag_of(v, sp, img)}
             if u.path.startswith("/api/labels"):
                 entry = load_flags(v, sp).get(img)
