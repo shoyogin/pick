@@ -131,6 +131,11 @@ reviewers, with or without a verdict, and a later verdict does not disturb them.
 comment keeps its original author and place in the thread and is marked *edited*.
 The card shows a bubble and a count, and *Show → Has comments* filters to them.
 
+The thread scrolls in its own column, so the verdict buttons and the box table
+stay put however long it gets, and the box you type in stays at the bottom. The
+same thread is on the **Fix** tab beside the editor, with the image's status, so
+you can read why it was turned down while you repair it.
+
 Verdicts and comments go to an append-only JSONL log per version/split under
 `--review`, never into the dataset. Nothing is ever rewritten, so the history of
 who said what is kept.

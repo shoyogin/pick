@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import BoxEditor, { useBoxHistory } from '../components/BoxEditor'
 import ClassesButton from '../components/ClassesButton'
+import { Thread } from '../components/Thread'
 import ZoomPane, { BTN, BTN_ON } from '../components/ZoomPane'
 import { getQueue, imgUrl, revertLabels, saveFlag, saveLabels } from '../lib/api'
 import { boxesEqual } from '../lib/boxes'
@@ -14,9 +15,9 @@ import { useData } from '../lib/store'
  * it, so the accept button lives on Review, not here.
  */
 export default function Fix() {
-  const { version, stats, meta, classPrefs: prefs } = useData()
+  const { version, stats, meta, classPrefs: prefs, who, nameSelf } = useData()
   const classes = stats?.classes ?? []
-  const me = meta?.user || ''
+  const me = who.trim() || 'anon'
 
   const [queue, setQueue] = useState([])
   const [busy, setBusy] = useState(true)
@@ -94,7 +95,8 @@ export default function Fix() {
       {item ? (
         <Bench
           key={`${item.split}/${item.name}`} item={item} version={version}
-          classes={classes} me={me} prefs={prefs} onPatch={replace} onDrop={drop}
+          classes={classes} me={me} who={who} nameSelf={nameSelf}
+          proxyUser={meta?.user} prefs={prefs} onPatch={replace} onDrop={drop}
           onNext={() => setOpenAt((i) => Math.min(i + 1, queue.length - 1))}
           hasNext={openAt < queue.length - 1}
         />
@@ -107,7 +109,8 @@ export default function Fix() {
   )
 }
 
-function Bench({ item, version, classes, me, prefs, onPatch, onDrop, onNext, hasNext }) {
+function Bench({ item, version, classes, me, who, nameSelf, proxyUser, prefs,
+                 onPatch, onDrop, onNext, hasNext }) {
   const saved = useMemo(() => item.boxes, [item.boxes])
   const hist = useBoxHistory(saved, `${item.split}/${item.name}`)
   const [cls, setCls] = useState(() => saved[0]?.[0] ?? 0)
@@ -231,7 +234,19 @@ function Bench({ item, version, classes, me, prefs, onPatch, onDrop, onNext, has
           )}
         </ZoomPane>
 
-        <div className="w-full shrink-0 overflow-y-auto border-t border-line bg-card p-4 lg:w-72 lg:border-l lg:border-t-0">
+        <div className="flex min-h-0 w-full shrink-0 flex-col border-t border-line bg-card p-4 lg:w-80 lg:border-l lg:border-t-0">
+          <div className="max-h-[60%] shrink-0 overflow-y-auto">
+          {status && (
+            <p className="mb-3 flex items-center gap-2 text-xs">
+              <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${
+                status === 'review' ? 'bg-review-fill text-review-ink' : 'bg-no-fill text-no-ink'}`}>
+                {status === 'review' ? 'Review' : 'not OK'}
+              </span>
+              <span className="text-muted">
+                {item.flag?.reviewer ? `${item.flag.reviewer} · ${when(item.flag.ts)}` : ''}
+              </span>
+            </p>
+          )}
           <h2 className="text-xs font-medium text-ink2">
             Class for new boxes{selected >= 0 ? ' and the selected one' : ''}
           </h2>
@@ -317,6 +332,24 @@ function Bench({ item, version, classes, me, prefs, onPatch, onDrop, onNext, has
               {prefs.anyHidden && ' · a hidden class cannot be selected or drawn on'}
             </p>
           )}
+
+          {proxyUser == null && (
+            <label className="mt-3 flex items-center gap-2 text-xs text-ink2">
+              Reviewer
+              <input
+                value={who} onChange={(e) => nameSelf(e.target.value)}
+                placeholder="your name"
+                className="flex-1 rounded-md border border-rule bg-card px-2 py-1 text-xs"
+              />
+            </label>
+          )}
+          </div>
+
+          <Thread
+            key={`${item.split}/${item.name}`} item={item} version={version}
+            split={item.split} who={who}
+            onSaved={(flag) => onPatch(item.name, item.split, { flag })}
+          />
         </div>
       </div>
     </section>
