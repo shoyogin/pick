@@ -22,13 +22,15 @@ const FileIcon = () => (
 export default function Files() {
   const [params, setParams] = useSearchParams()
   const path = params.get('path') || ''
-  const { root } = useData()
+  const { root, versions } = useData()
   const [data, setData] = useState(null)
   const [rejects, setRejects] = useState(null)
   const [error, setError] = useState(null)
 
-  const version = path.split('/')[0] || ''
-  const atVersionRoot = version && path.split('/').length === 1
+  // Ask the server's own list rather than guessing from the path depth: a
+  // version can sit at the root or inside a group, and only the list knows.
+  const atVersionRoot = versions.includes(path)
+  const version = atVersionRoot ? path : ''
 
   useEffect(() => {
     let stale = false

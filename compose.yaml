@@ -28,16 +28,13 @@ services:
 
   caddy:
     image: caddy:2
-    # Bind only the VPN address, which is per-host and lives in .env (untracked).
-    # Bare "80:80" listens on all interfaces (LAN, docker bridges, etc.), which
-    # widens exposure beyond the VPN path — so the fallback here is loopback,
-    # not a wildcard: with no .env the app is unreachable rather than exposed.
+    # Per-host, from .env. Bare "80:80" would listen on every interface, so the
+    # fallback is loopback: with no .env the app is unreachable, not exposed.
     ports:
       - "${BIND_ADDR:-127.0.0.1}:80:80"
-    # Reviewer names and password hashes, untracked and per-host. `format: raw`
-    # matters: a bcrypt hash is full of $ signs, and Compose's normal
-    # interpolation eats them — "$2a$14$Wh…" arrives as "$2a$14" and every
-    # login fails. Raw passes the line through untouched.
+    # `format: raw` is required: a bcrypt hash is full of $ signs and Compose's
+    # normal interpolation eats them — "$2a$14$Wh…" arrives as "$2a$14" and
+    # every login fails with no visible cause.
     env_file:
       - path: caddy.env
         format: raw

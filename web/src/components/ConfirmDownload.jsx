@@ -3,12 +3,9 @@ import { folderZipUrl, getSummary } from '../lib/api'
 import { nf } from '../lib/format'
 
 /**
- * The reviewed download, with a question in front of it.
- *
- * An export is a decision about every image in the version, including the ones
- * nobody opened. Those ship — silently, which is the problem. So the count is
- * fetched at click time (not from whatever the page loaded with) and, if any
- * image is still unjudged, said out loud before the zip starts.
+ * The reviewed download, with a question in front of it: images nobody has
+ * looked at ship silently otherwise. The count is fetched at click time, not
+ * taken from whatever the page loaded with.
  */
 export default function ConfirmDownload({ version, className, children }) {
   const [ask, setAsk] = useState(null)
@@ -24,8 +21,7 @@ export default function ConfirmDownload({ version, className, children }) {
       if (s.unflagged > 0) return setAsk(s)
       start()
     } catch {
-      // A summary we could not read is no reason to withhold the download;
-      // the export itself is what matters and it does not depend on this.
+      // A summary we cannot read is no reason to withhold the download.
       start()
     } finally {
       setBusy(false)

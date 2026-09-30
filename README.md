@@ -33,17 +33,33 @@ cd web && npm run dev            # http://localhost:5173
 ## Dataset layout
 
 ```
-<root>/<version>/images/<split>/*.jpg
-<root>/<version>/labels/<split>/*.txt
-<root>/<version>/classes.txt            # optional
+<version>/images/<split>/*.jpg
+<version>/labels/<split>/*.txt
+<version>/classes.txt            # optional
 ```
+
+A version is **any folder holding an `images/` directory**, so the root can be
+flat or grouped by dataset, and the two can be mixed:
+
+```
+/srv/data/datasets/legacy/…            # version at the root
+/srv/data/datasets/online/t0.0.0/…     # grouped by dataset
+/srv/data/datasets/online/v0.0.0/…
+/srv/data/datasets/cs/t0.1.0/…
+```
+
+The version id is its path under the root — `online/t0.0.0` — and the picker
+groups the list by folder. Three levels are searched; the walk stops at each
+version, so it never reads inside an `images/` folder.
 
 A flat `images/*.jpg` with no split folders works too — it becomes the split `.`.
 
 **Class names** come from `classes.txt` in the version folder, or in its
-`labels/` folder, or one shared at the dataset root — first found wins.
-`data.yaml` is read only when there is no `classes.txt` anywhere. One class per
-line, with or without the index:
+`labels/` folder, then from each folder above it up to the dataset root — first
+found wins. So `online/classes.txt` covers every version under `online/`, and a
+single version can still override it with its own. `data.yaml` is read only when
+there is no `classes.txt` anywhere. One class per line, with or without the
+index:
 
 ```
 car          0 car        0: car
