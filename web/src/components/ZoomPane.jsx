@@ -3,6 +3,23 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 const STEP = 1.3
 const MAX_NATURAL = 8      // never past 8 image pixels per screen pixel
 
+const BTN = 'rounded border border-rule bg-card px-1.5 py-0.5 hover:bg-hover disabled:opacity-40'
+const BTN_ON = 'rounded border border-ink bg-ink px-1.5 py-0.5 text-page'
+
+/** Toolbar toggle for the overlays. Lives here so anything dropped into
+ *  `toolbarExtra` matches the zoom controls beside it. */
+export function BoxesButton({ on, onToggle }) {
+  return (
+    <button
+      onClick={onToggle}
+      title={on ? 'Hide the boxes (b)' : 'Show the boxes (b) — editing is off while they are hidden'}
+      className={on ? BTN : BTN_ON}
+    >
+      {on ? 'Boxes' : 'No boxes'}
+    </button>
+  )
+}
+
 /**
  * Scrollable stage that sizes its child in pixels instead of scaling it.
  *
@@ -161,7 +178,7 @@ export default function ZoomPane({
   }, [grab])
 
   const canGrab = grab === 'always' || hand
-  const btn = 'rounded border border-rule bg-card px-1.5 py-0.5 hover:bg-hover disabled:opacity-40'
+  const btn = BTN
 
   return (
     <div className="relative h-full min-h-0 flex-1 overflow-hidden bg-stage">
@@ -195,7 +212,7 @@ export default function ZoomPane({
           <button
             onClick={() => setHand((v) => !v)}
             title="Drag to pan instead of editing (or hold space, or drag with the middle button)"
-            className={hand ? 'rounded border border-ink bg-ink px-1.5 py-0.5 text-page' : btn}
+            className={hand ? BTN_ON : btn}
           >
             Pan
           </button>

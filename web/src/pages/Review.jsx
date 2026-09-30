@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
 import ConfirmDownload from '../components/ConfirmDownload'
-import ZoomPane from '../components/ZoomPane'
+import ZoomPane, { BoxesButton } from '../components/ZoomPane'
 import {
   UNOWNED, addComment, deleteComment, editComment, getItems, getSummary,
   imgUrl, reviewCsvUrl, saveFlag,
 } from '../lib/api'
 import { classColor } from '../lib/colors'
+import { useShowBoxes } from '../lib/showBoxes'
 import { bytes, nf, splitLabel, when } from '../lib/format'
 import { useData } from '../lib/store'
 
@@ -37,6 +38,7 @@ export default function Review() {
   const [summary, setSummary] = useState({})
   const [open, setOpen] = useState(-1)
   const [who, setWho] = useState(() => localStorage.getItem('reviewer') || '')
+  const [showBoxes, toggleBoxes] = useShowBoxes()
 
   const splits = useMemo(() => Object.keys(stats?.splits ?? {}), [stats])
 
@@ -209,7 +211,7 @@ export default function Review() {
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
               {items.map((it, i) => (
-                <Card key={it.name} item={it} classes={classes}
+                <Card key={it.name} item={it} classes={classes} hidden={!showBoxes}
                   version={version} split={split} onOpen={() => setOpen(i)} />
               ))}
             </div>
@@ -229,6 +231,7 @@ export default function Review() {
         <Viewer
           items={items} index={open} classes={classes} version={version} split={split}
           who={who} setWho={setWho} proxyUser={meta?.user}
+          showBoxes={showBoxes} toggleBoxes={toggleBoxes}
           onIndex={setOpen} onClose={() => setOpen(-1)} onFlag={applyFlag}
         />
       )}
@@ -286,7 +289,7 @@ const Bubble = ({ className = '' }) => (
   </svg>
 )
 
-function Card({ item, classes, version, split, onOpen }) {
+function Card({ item, classes, version, split, hidden, onOpen }) {
   const status = item.flag?.status
   const notes = item.flag?.comments?.length || 0
   return (
@@ -299,7 +302,7 @@ function Card({ item, classes, version, split, onOpen }) {
         <div className={OUT(status) ? 'flex max-h-full max-w-full opacity-45' : 'flex max-h-full max-w-full'}>
           <BoxOverlay
             src={imgUrl(version, split, item.name, true)} alt={item.name}
-            dim={item.dim} boxes={item.boxes} classes={classes}
+            dim={item.dim} boxes={item.boxes} classes={classes} hidden={hidden}
           />
         </div>
       </div>
@@ -325,7 +328,7 @@ function Card({ item, classes, version, split, onOpen }) {
 }
 
 function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
-  onIndex, onClose, onFlag }) {
+  showBoxes, toggleBoxes, onIndex, onClose, onFlag }) {
   const item = items[index]
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
@@ -383,11 +386,15 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
         onClick={(e) => e.stopPropagation()}
         className="grid h-[94vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl bg-surface md:grid-cols-[1fr_320px] md:grid-rows-[minmax(0,1fr)]"
       >
-        <ZoomPane dim={item.dim} resetKey={item.name}>
+        <ZoomPane
+          dim={item.dim} resetKey={item.name}
+          toolbarExtra={<BoxesButton on={showBoxes} onToggle={toggleBoxes} />}
+        >
           {(frame) => (
             <BoxOverlay
               src={imgUrl(version, split, item.name)} alt={item.name} big size={frame}
               dim={item.dim} boxes={item.boxes} classes={classes} tagMin={[0.05, 0.03]}
+              hidden={!showBoxes}
             />
           )}
         </ZoomPane>
@@ -502,7 +509,7 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
               className="rounded border border-line px-2 py-0.5 hover:bg-hover">←</button>
             <button onClick={() => onIndex(Math.min(index + 1, items.length - 1))}
               className="rounded border border-line px-2 py-0.5 hover:bg-hover">→</button>
-            <span>move · <b>1</b> OK · <b>2</b> not OK · <b>3</b> delete · <b>esc</b> close</span>
+            <span>move · <b>1</b> OK · <b>2</b> not OK · <b>3</b> delete · <b>b</b> boxes · <b>esc</b> close</span>
           </div>
         </div>
       </div>

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import BoxEditor, { useBoxHistory } from '../components/BoxEditor'
-import ZoomPane from '../components/ZoomPane'
+import ZoomPane, { BoxesButton } from '../components/ZoomPane'
 import { getQueue, imgUrl, revertLabels, saveFlag, saveLabels } from '../lib/api'
 import { boxesEqual } from '../lib/boxes'
 import { classColor } from '../lib/colors'
+import { useShowBoxes } from '../lib/showBoxes'
 import { nf, splitLabel, when } from '../lib/format'
 import { useData } from '../lib/store'
 
@@ -109,6 +110,7 @@ export default function Fix() {
 function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext }) {
   const saved = useMemo(() => item.boxes, [item.boxes])
   const hist = useBoxHistory(saved, `${item.split}/${item.name}`)
+  const [showBoxes, toggleBoxes] = useShowBoxes()
   const [cls, setCls] = useState(() => saved[0]?.[0] ?? 0)
   const [selected, setSelected] = useState(-1)
   const [busy, setBusy] = useState('')
@@ -135,7 +137,7 @@ function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext })
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.matches('textarea, input')) return
+      if (e.target.matches('textarea, input') || !showBoxes) return
       if (e.key === 'Escape') setSelected(-1)
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove() }
       if (e.key >= '1' && e.key <= '9' && !e.metaKey && !e.ctrlKey) {
@@ -149,7 +151,7 @@ function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [remove, setClassOf, classes.length, hist])
+  }, [remove, setClassOf, classes.length, hist, showBoxes])
 
   const run = async (what, fn) => {
     setBusy(what)
@@ -215,12 +217,16 @@ function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext })
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <ZoomPane dim={item.dim} resetKey={`${item.split}/${item.name}`} grab="modifier">
+        <ZoomPane
+          dim={item.dim} resetKey={`${item.split}/${item.name}`} grab="modifier"
+          toolbarExtra={<BoxesButton on={showBoxes} onToggle={toggleBoxes} />}
+        >
           {(frame) => (
             <BoxEditor
               src={imgUrl(version, item.split, item.name)} alt={item.name} size={frame}
               dim={item.dim} boxes={hist.boxes} classes={classes} cls={cls}
               selected={selected} onSelect={setSelected} onChange={hist.set}
+              hidden={!showBoxes}
             />
           )}
         </ZoomPane>
@@ -298,10 +304,18 @@ function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext })
 
           {error && <p className="mt-2 text-[11px] text-no">{error}</p>}
 
-          <p className="mt-4 text-[11px] text-muted">
-            Drag empty space to draw · drag inside to move · corners to resize ·
-            <b> 1</b>–<b>9</b> class · <b>⌫</b> delete · <b>⌘Z</b> undo
-          </p>
+          {showBoxes ? (
+            <p className="mt-4 text-[11px] text-muted">
+              Drag empty space to draw · drag inside to move · corners to resize ·
+              <b> 1</b>–<b>9</b> class · <b>⌫</b> delete · <b>⌘Z</b> undo ·
+              <b> b</b> hide boxes
+            </p>
+          ) : (
+            <p className="mt-4 rounded-md border border-line px-2 py-1.5 text-[11px] text-ink2">
+              Boxes are hidden, so editing is off — nothing can be changed by
+              accident while you look at the picture. <b>b</b> brings them back.
+            </p>
+          )}
         </div>
       </div>
     </section>

@@ -107,7 +107,12 @@ draws and moves boxes instead, pan by holding **space**, dragging with the
 **middle button**, or switching on the **Pan** button in the toolbar.
 
 The readout is the image's natural size, so *1:1* is one image pixel per screen
-pixel — the scale at which a box a few pixels out is visible. Boxes, class tags
+pixel — the scale at which a box a few pixels out is visible.
+
+**Boxes** hides and shows the overlays — `b`, or the button in the toolbar. The
+choice is remembered and shared by both tabs, and in Review it covers the card
+grid as well as the open image. In Fix, hiding them also turns editing off, so
+nothing is redrawn by accident while you look at the picture. Boxes, class tags
 and the editor's handles keep their size as you zoom, so a handle stays
 grabbable at any magnification.
 
@@ -126,7 +131,8 @@ who said what is kept.
 Everything marked not OK collects on the **Fix** tab, across every split of the
 version. Open one and the boxes are editable: drag empty space to draw, drag
 inside a box to move it, corners and edges to resize, `1`–`9` to set the class,
-`⌫` to delete, `⌘Z` to undo, plus the zoom controls above.
+`⌫` to delete, `⌘Z` to undo, `b` to hide the boxes, plus the zoom controls
+above.
 
 *Delete image* is here too: it marks the image **Deleted** and takes it out of
 the queue, since it is no longer waiting to be repaired. Undo that from Review,

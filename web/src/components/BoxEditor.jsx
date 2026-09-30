@@ -15,6 +15,7 @@ const GRAB = 9        // handle grab radius, in screen pixels
  */
 export default function BoxEditor({
   src, alt, dim, boxes, classes, cls, selected, onSelect, onChange, size = null,
+  hidden = false,
 }) {
   const frame = useRef(null)
   const [drag, setDrag] = useState(null)
@@ -28,7 +29,7 @@ export default function BoxEditor({
   }, [])
 
   const onPointerDown = (e) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || hidden) return
     const { x, y, pad } = at(e)
     e.currentTarget.setPointerCapture(e.pointerId)
 
@@ -55,6 +56,7 @@ export default function BoxEditor({
   }
 
   const onPointerMove = (e) => {
+    if (hidden) return
     const { x, y, pad } = at(e)
     if (!drag) {
       const h = selected >= 0 && boxes[selected]
@@ -104,12 +106,12 @@ export default function BoxEditor({
         size ? 'shrink-0' : 'max-h-full max-w-full'}`}
       style={{
         ...(size || { aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3' }),
-        cursor: drag ? 'grabbing' : hover || 'crosshair',
+        cursor: hidden ? 'default' : drag ? 'grabbing' : hover || 'crosshair',
       }}
     >
       <img src={src} alt={alt} draggable={false} className="block size-full" />
 
-      {boxes.map((box, i) => {
+      {!hidden && boxes.map((box, i) => {
         const r = toRect(box)
         const on = i === selected
         return (
@@ -149,7 +151,7 @@ export default function BoxEditor({
         )
       })}
 
-      {drawing && (
+      {!hidden && drawing && (
         <div
           className="pointer-events-none absolute rounded-[2px] border-2 border-dashed"
           style={{
