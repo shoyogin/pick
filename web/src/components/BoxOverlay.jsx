@@ -10,7 +10,7 @@ import { classColor, classInk } from '../lib/colors'
  */
 export default function BoxOverlay({
   src, alt, dim, boxes = [], classes = [], tagMin = [0.2, 0.08], big = false,
-  size = null, hidden = false,
+  size = null, hiddenClasses = null,
 }) {
   return (
     <div
@@ -20,7 +20,7 @@ export default function BoxOverlay({
       {/* draggable: the browser's own image drag would swallow a pan gesture */}
       <img src={src} alt={alt} loading="lazy" draggable={false}
            className="block size-full" />
-      {!hidden && boxes.map(([c, x, y, w, h], i) => (
+      {boxes.map(([c, x, y, w, h], i) => hiddenClasses?.has(c) ? null : (
         <div
           key={i}
           className="pointer-events-none absolute rounded-[2px] border-2"

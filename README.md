@@ -109,10 +109,19 @@ draws and moves boxes instead, pan by holding **space**, dragging with the
 The readout is the image's natural size, so *1:1* is one image pixel per screen
 pixel — the scale at which a box a few pixels out is visible.
 
-**Boxes** hides and shows the overlays — `b`, or the button in the toolbar. The
-choice is remembered and shared by both tabs, and in Review it covers the card
-grid as well as the open image. In Fix, hiding them also turns editing off, so
-nothing is redrawn by accident while you look at the picture. Boxes, class tags
+**Boxes** opens the class list: tick a class to draw it, untick to hide it, and
+click its swatch to recolour it. `b` clears every box for a clean look at the
+picture and puts your selection back — it does not undo your filtering. Both the
+colours and the hidden classes are remembered per browser and shared by Review,
+Fix and Stats; in Review the hiding covers the card grid as well as the open
+image.
+
+A hidden class cannot be selected or grabbed in the editor, and with every class
+hidden editing is off altogether, so nothing is redrawn by accident. Colours are
+keyed by class **name**, so `car` keeps its colour across versions; *Reset
+colours* puts the palette back. A chosen colour is a literal rather than a theme
+token, so unlike the defaults it does not change between light and dark — the
+label on the box flips between black and white to stay legible on it. Boxes, class tags
 and the editor's handles keep their size as you zoom, so a handle stays
 grabbable at any magnification.
 

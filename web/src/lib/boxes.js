@@ -59,9 +59,11 @@ export function resizeBox(box, handle, px, py) {
 }
 
 /** Topmost box under the point, or -1. Backwards, because later boxes are
- *  drawn on top: what you see is what you grab. */
-export function hitBox(boxes, x, y) {
+ *  drawn on top: what you see is what you grab — so `skip` keeps hidden
+ *  classes from being grabbed through the picture. */
+export function hitBox(boxes, x, y, skip = null) {
   for (let i = boxes.length - 1; i >= 0; i--) {
+    if (skip && skip(boxes[i])) continue
     const r = toRect(boxes[i])
     if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) return i
   }

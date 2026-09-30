@@ -3,22 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 const STEP = 1.3
 const MAX_NATURAL = 8      // never past 8 image pixels per screen pixel
 
-const BTN = 'rounded border border-rule bg-card px-1.5 py-0.5 hover:bg-hover disabled:opacity-40'
-const BTN_ON = 'rounded border border-ink bg-ink px-1.5 py-0.5 text-page'
-
-/** Toolbar toggle for the overlays. Lives here so anything dropped into
- *  `toolbarExtra` matches the zoom controls beside it. */
-export function BoxesButton({ on, onToggle }) {
-  return (
-    <button
-      onClick={onToggle}
-      title={on ? 'Hide the boxes (b)' : 'Show the boxes (b) — editing is off while they are hidden'}
-      className={on ? BTN : BTN_ON}
-    >
-      {on ? 'Boxes' : 'No boxes'}
-    </button>
-  )
-}
+// Exported so anything dropped into `toolbarExtra` matches the zoom controls.
+export const BTN = 'rounded border border-rule bg-card px-1.5 py-0.5 hover:bg-hover disabled:opacity-40'
+export const BTN_ON = 'rounded border border-ink bg-ink px-1.5 py-0.5 text-page'
 
 /**
  * Scrollable stage that sizes its child in pixels instead of scaling it.
