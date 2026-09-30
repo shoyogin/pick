@@ -90,15 +90,51 @@ Versions are listed alphabetically, so every `t` sorts before every `v`.
 
 ## Reviewing
 
-A verdict is **OK**, **not OK**, or **Review** — corrected and waiting to be
-accepted (yellow). Keyboard: `1` OK, `2` not OK, `←` `→` move, `esc` close. An
-OK jumps to the next image; a rejection stays put with the comment box focused.
+A verdict is **OK**, **not OK**, **Review** — corrected and waiting to be
+accepted (yellow) — or **Deleted**, for an image that should not be in the
+dataset at all. Keyboard: `1` OK, `2` not OK, `3` delete, `←` `→` move, `esc`
+close. An OK jumps to the next image; a rejection stays put with the comment
+box focused.
+
+Deleting removes nothing from disk. It holds the image out of the export the
+way *not OK* does, keeps it in the grid with a struck-through name, and is
+undone by pressing `3` again. Deleted images stay out of the Fix queue — they
+are not waiting to be repaired.
+
+**Zoom** works the same here and in Fix: the wheel zooms toward the cursor, `+`
+and `-` step, `0` fits the pane. Drag the image to pan — in Fix, where dragging
+draws and moves boxes instead, pan by holding **space**, dragging with the
+**middle button**, or switching on the **Pan** button in the toolbar.
+
+The readout is the image's natural size, so *1:1* is one image pixel per screen
+pixel — the scale at which a box a few pixels out is visible.
+
+**Boxes** opens the class list: tick a class to draw it, untick to hide it, and
+click its swatch to recolour it. `b` clears every box for a clean look at the
+picture and puts your selection back — it does not undo your filtering. Both the
+colours and the hidden classes are remembered per browser and shared by Review,
+Fix and Stats; in Review the hiding covers the card grid as well as the open
+image.
+
+A hidden class cannot be selected or grabbed in the editor, and with every class
+hidden editing is off altogether, so nothing is redrawn by accident. Colours are
+keyed by class **name**, so `car` keeps its colour across versions; *Reset
+colours* puts the palette back. A chosen colour is a literal rather than a theme
+token, so unlike the defaults it does not change between light and dark — the
+label on the box flips between black and white to stay legible on it. Boxes, class tags
+and the editor's handles keep their size as you zoom, so a handle stays
+grabbable at any magnification.
 
 **Comments** are a thread. Any image takes any number of them from any number of
 reviewers, with or without a verdict, and a later verdict does not disturb them.
 `⌘↵` / `ctrl↵` sends. **edit** rewords one of your own and **×** removes it; the
 comment keeps its original author and place in the thread and is marked *edited*.
 The card shows a bubble and a count, and *Show → Has comments* filters to them.
+
+The thread scrolls in its own column, so the verdict buttons and the box table
+stay put however long it gets, and the box you type in stays at the bottom. The
+same thread is on the **Fix** tab beside the editor, with the image's status, so
+you can read why it was turned down while you repair it.
 
 Verdicts and comments go to an append-only JSONL log per version/split under
 `--review`, never into the dataset. Nothing is ever rewritten, so the history of
@@ -109,7 +145,12 @@ who said what is kept.
 Everything marked not OK collects on the **Fix** tab, across every split of the
 version. Open one and the boxes are editable: drag empty space to draw, drag
 inside a box to move it, corners and edges to resize, `1`–`9` to set the class,
-`⌫` to delete, `⌘Z` to undo.
+`⌫` to delete, `⌘Z` to undo, `b` to hide the boxes, plus the zoom controls
+above.
+
+*Delete image* is here too: it marks the image **Deleted** and takes it out of
+the queue, since it is no longer waiting to be repaired. Undo that from Review,
+where deleted images are still listed.
 
 Saving does not pass a verdict. It marks the image **Review** and it waits there
 until somebody else accepts it on the Review tab — **nobody can accept their own
@@ -127,8 +168,8 @@ corrected dataset exists only in the file you download.
 ## Downloading a cleaned version
 
 *Download reviewed dataset* streams the version as a zip with the corrected
-labels in place of the originals, and with every image still marked not OK or
-Review — and its label file — left out. Two receipts travel inside:
+labels in place of the originals, and with every image marked not OK, Review or
+Deleted — and its label file — left out. Two receipts travel inside:
 `EXCLUDED.csv` for what was held back and why, and `CORRECTED.csv` for which
 labels were redrawn and by whom. The dataset itself is untouched.
 
@@ -224,7 +265,8 @@ Everything the UI does is a plain HTTP call, so scripts can use it too.
 | `GET /file?path=` | one file |
 | `GET /download?path=&exclude=1` | streamed zip; `exclude=1` applies the review |
 
-`mode` is `all｜unreviewed｜ok｜no｜review｜commented｜unlabeled｜empty`. `cls`
+`mode` is `all｜unreviewed｜ok｜no｜review｜deleted｜commented｜unlabeled｜empty`.
+`cls`
 takes one class index or a comma list (`0,2,5`); `clsmode=any` (default) keeps images
 holding at least one, `clsmode=all` only those holding every one. Each `POST`
 answers with the image's whole flag, verdict and full thread.

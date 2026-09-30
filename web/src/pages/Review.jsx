@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
 import ConfirmDownload from '../components/ConfirmDownload'
+import ClassesButton from '../components/ClassesButton'
+import { Bubble, Thread } from '../components/Thread'
+import ZoomPane, { BTN, BTN_ON } from '../components/ZoomPane'
 import {
-  UNOWNED, addComment, deleteComment, editComment, getItems, getSummary,
-  imgUrl, reviewCsvUrl, saveFlag,
+  UNOWNED, getItems, getSummary, imgUrl, reviewCsvUrl, saveFlag,
 } from '../lib/api'
 import { classColor } from '../lib/colors'
 import { bytes, nf, splitLabel, when } from '../lib/format'
@@ -15,6 +17,7 @@ const SHOW = [
   ['ok', 'Marked OK'],
   ['no', 'Marked not OK'],
   ['review', 'Corrected, waiting to be accepted'],
+  ['deleted', 'Deleted'],
   ['commented', 'Has comments'],
   ['unlabeled', 'Missing label file'],
   ['empty', 'Label file, no boxes'],
@@ -22,7 +25,7 @@ const SHOW = [
 const PAGE = 120
 
 export default function Review() {
-  const { version, stats, meta } = useData()
+  const { version, stats, meta, classPrefs: prefs, who, nameSelf } = useData()
   const classes = stats?.classes ?? []
 
   const [split, setSplit] = useState('')
@@ -34,7 +37,6 @@ export default function Review() {
   const [busy, setBusy] = useState(true)
   const [summary, setSummary] = useState({})
   const [open, setOpen] = useState(-1)
-  const [who, setWho] = useState(() => localStorage.getItem('reviewer') || '')
 
   const splits = useMemo(() => Object.keys(stats?.splits ?? {}), [stats])
 
@@ -44,7 +46,6 @@ export default function Review() {
   }, [splits])
 
   useEffect(() => { setCls(new Set()) }, [version])
-  useEffect(() => { if (meta?.user) setWho(meta.user) }, [meta])
 
   const load = useCallback(async (offset = 0) => {
     if (!version || !split) return
@@ -64,7 +65,7 @@ export default function Review() {
   useEffect(() => { load(0) }, [load])
 
   const reloadSummary = useCallback(() => {
-    if (version) getSummary(version).then(setSummary).catch(() => {})
+    if (version) getSummary(version).then(setSummary).catch(() => { })
   }, [version])
   useEffect(reloadSummary, [reloadSummary])
 
@@ -82,8 +83,9 @@ export default function Review() {
   }, [reloadSummary])
 
   const done = (summary.ok || 0) + (summary.no || 0) + (summary.review || 0)
+    + (summary.deleted || 0)
   // Rejects and fixes still waiting on approval both stay out of the export.
-  const held = (summary.no || 0) + (summary.review || 0)
+  const held = (summary.no || 0) + (summary.review || 0) + (summary.deleted || 0)
 
   return (
     <div className="flex h-full">
@@ -93,9 +95,8 @@ export default function Review() {
             {splits.map((s) => (
               <button
                 key={s} onClick={() => setSplit(s)}
-                className={`flex-1 rounded-md border px-2 py-1.5 text-xs ${
-                  s === split ? 'border-ink bg-ink font-semibold text-page'
-                              : 'border-rule bg-card hover:bg-hover'}`}
+                className={`flex-1 rounded-md border px-2 py-1.5 text-xs ${s === split ? 'border-ink bg-ink font-semibold text-page'
+                    : 'border-rule bg-card hover:bg-hover'}`}
               >
                 {splitLabel(s)} <span className="num opacity-65">{stats.splits[s]}</span>
               </button>
@@ -119,8 +120,7 @@ export default function Review() {
               <button
                 onClick={() => setMatchAll((v) => !v)}
                 title="Any: the image has at least one ticked class. All: it has every one."
-                className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                  matchAll ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2'}`}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${matchAll ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2'}`}
               >
                 {matchAll ? 'all' : 'any'}
               </button>
@@ -157,6 +157,7 @@ export default function Review() {
           <Fact label="OK" value={nf(summary.ok || 0)} />
           <Fact label="Review" value={nf(summary.review || 0)} accent="text-review" />
           <Fact label="Not OK" value={nf(summary.no || 0)} accent="text-no" />
+          <Fact label="Deleted" value={nf(summary.deleted || 0)} accent="text-no" />
         </div>
 
         <div className="mt-4 space-y-2">
@@ -207,8 +208,8 @@ export default function Review() {
           ) : (
             <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
               {items.map((it, i) => (
-                <Card key={it.name} item={it} classes={classes}
-                      version={version} split={split} onOpen={() => setOpen(i)} />
+                <Card key={it.name} item={it} classes={classes} hiddenClasses={prefs.hiddenIdx}
+                  version={version} split={split} onOpen={() => setOpen(i)} />
               ))}
             </div>
           )}
@@ -226,7 +227,8 @@ export default function Review() {
       {open >= 0 && items[open] && (
         <Viewer
           items={items} index={open} classes={classes} version={version} split={split}
-          who={who} setWho={setWho} proxyUser={meta?.user}
+          who={who} nameSelf={nameSelf} proxyUser={meta?.user}
+          prefs={prefs}
           onIndex={setOpen} onClose={() => setOpen(-1)} onFlag={applyFlag}
         />
       )}
@@ -254,11 +256,15 @@ const Fact = ({ label, value, accent }) => (
   </div>
 )
 
+// Deleted shares not-OK's red; the pill text and struck filename separate them.
 const PILL = {
   ok: ['OK', 'bg-ok-fill text-ok-ink'],
   no: ['not OK', 'bg-no-fill text-no-ink'],
   review: ['Review', 'bg-review-fill text-review-ink'],
+  deleted: ['Deleted', 'bg-no-fill text-no-ink'],
 }
+
+const OUT = (status) => status === 'no' || status === 'deleted'
 
 function StatusPill({ status }) {
   const pill = PILL[status]
@@ -270,42 +276,35 @@ function StatusPill({ status }) {
   )
 }
 
-/** Small speech bubble. Drawn rather than set in type: the caption line is
- *  already carrying a filename and a count, and a glyph reads faster there. */
-const Bubble = ({ className = '' }) => (
-  <svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor"
-       strokeWidth="1.1" strokeLinejoin="round"
-       className={`size-3 shrink-0 ${className}`}>
-    <path d="M1.8 2.2h8.4v5.4H5.4L3 9.8V7.6H1.8z" />
-  </svg>
-)
 
-function Card({ item, classes, version, split, onOpen }) {
+function Card({ item, classes, version, split, hiddenClasses, onOpen }) {
   const status = item.flag?.status
   const notes = item.flag?.comments?.length || 0
   return (
     <figure
       onClick={onOpen}
-      className={`relative m-0 cursor-pointer rounded-lg border bg-card ${
-        status === 'no' ? 'border-no/40' : 'border-line hover:border-rule'}`}
+      className={`relative m-0 cursor-pointer rounded-lg border bg-card ${OUT(status) ? 'border-no/40' : 'border-line hover:border-rule'}`}
     >
       <StatusPill status={status} />
       <div className="flex h-40 items-center justify-center overflow-hidden rounded-t-lg bg-stage">
-        <div className={status === 'no' ? 'flex max-h-full max-w-full opacity-45' : 'flex max-h-full max-w-full'}>
+        <div className={OUT(status) ? 'flex max-h-full max-w-full opacity-45' : 'flex max-h-full max-w-full'}>
           <BoxOverlay
             src={imgUrl(version, split, item.name, true)} alt={item.name}
             dim={item.dim} boxes={item.boxes} classes={classes}
+            hiddenClasses={hiddenClasses}
           />
         </div>
       </div>
-      <figcaption className={`flex items-center justify-between gap-2 rounded-b-lg border-t border-line px-2.5 py-1.5 text-xs ${
-        status === 'ok' ? 'shadow-[inset_3px_0_0_var(--color-ok)]'
-        : status === 'no' ? 'shadow-[inset_3px_0_0_var(--color-no)]'
-        : status === 'review' ? 'shadow-[inset_3px_0_0_var(--color-review-fill)]' : ''}`}>
-        <span className="truncate text-ink2">{item.name}</span>
+      <figcaption className={`flex items-center justify-between gap-2 rounded-b-lg border-t border-line px-2.5 py-1.5 text-xs ${status === 'ok' ? 'shadow-[inset_3px_0_0_var(--color-ok)]'
+          : status === 'no' ? 'shadow-[inset_3px_0_0_var(--color-no)]'
+            : status === 'review' ? 'shadow-[inset_3px_0_0_var(--color-review-fill)]'
+              : status === 'deleted' ? 'shadow-[inset_3px_0_0_var(--color-no)]' : ''}`}>
+        <span className={`truncate text-ink2 ${status === 'deleted' ? 'line-through' : ''}`}>
+          {item.name}
+        </span>
         {notes > 0 && (
           <span className="num flex shrink-0 items-center gap-1 text-muted"
-                title={`${notes} comment${notes === 1 ? '' : 's'}`}>
+            title={`${notes} comment${notes === 1 ? '' : 's'}`}>
             <Bubble />{notes}
           </span>
         )}
@@ -317,8 +316,8 @@ function Card({ item, classes, version, split, onOpen }) {
   )
 }
 
-function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
-                  onIndex, onClose, onFlag }) {
+function Viewer({ items, index, classes, version, split, who, nameSelf, proxyUser,
+  prefs, onIndex, onClose, onFlag }) {
   const item = items[index]
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
@@ -361,32 +360,42 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
       if (e.key === 'Escape') onClose()
       if (e.key === '1') { e.preventDefault(); commit('ok') }
       if (e.key === '2') { e.preventDefault(); commit('no') }
+      if (e.key === '3') { e.preventDefault(); commit(status === 'deleted' ? '' : 'deleted') }
       if (e.key === 'ArrowRight') onIndex(Math.min(index + 1, items.length - 1))
       if (e.key === 'ArrowLeft') onIndex(Math.max(index - 1, 0))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [commit, index, items.length, onIndex, onClose])
+  }, [commit, status, index, items.length, onIndex, onClose])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
-         onClick={onClose}>
+      onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="grid max-h-[94vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl bg-surface md:grid-cols-[1fr_320px]"
+        className="grid h-[94vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl bg-surface md:grid-cols-[1fr_320px] md:grid-rows-[minmax(0,1fr)]"
       >
-        <div className="flex min-h-0 items-center justify-center bg-stage p-2">
-          <BoxOverlay
-            src={imgUrl(version, split, item.name)} alt={item.name} big
-            dim={item.dim} boxes={item.boxes} classes={classes} tagMin={[0.05, 0.03]}
-          />
-        </div>
+        <ZoomPane
+          dim={item.dim} resetKey={item.name}
+          toolbarExtra={<ClassesButton classes={classes} prefs={prefs}
+                                       btn={BTN} btnOn={BTN_ON} />}
+        >
+          {(frame) => (
+            <BoxOverlay
+              src={imgUrl(version, split, item.name)} alt={item.name} big size={frame}
+              dim={item.dim} boxes={item.boxes} classes={classes} tagMin={[0.05, 0.03]}
+              hiddenClasses={prefs.hiddenIdx}
+            />
+          )}
+        </ZoomPane>
 
-        <div className="min-h-0 overflow-y-auto border-l border-line bg-card p-4">
+        <div className="flex min-h-0 flex-col border-l border-line bg-card p-4">
+          {/* capped so a long box table cannot squeeze the thread to nothing */}
+          <div className="max-h-[55%] shrink-0 overflow-y-auto">
           <div className="flex items-start gap-2">
             <h2 className="min-w-0 flex-1 break-all text-sm font-semibold">{item.name}</h2>
             <button onClick={onClose}
-                    className="rounded border border-line px-2 py-0.5 text-xs text-ink2 hover:bg-hover">
+              className="rounded border border-line px-2 py-0.5 text-xs text-ink2 hover:bg-hover">
               esc
             </button>
           </div>
@@ -411,7 +420,7 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
                   <tr key={i}>
                     <td className="border-b border-line py-1 pr-2">
                       <span className="mr-1.5 inline-block size-2.5 rounded-[2px] align-middle"
-                            style={{ background: classColor(c) }} />
+                        style={{ background: classColor(c) }} />
                       {classes[c] ?? c}
                     </td>
                     {rest.map((v, j) => (
@@ -427,8 +436,10 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
             <h3 className="mb-2 text-xs font-medium text-ink2">Is this label correct?</h3>
             {item.flag?.corrected && (
               <p className="mb-2 rounded-md px-2 py-1.5 text-[11px]"
-                 style={{ background: 'var(--color-review-fill)',
-                          color: 'var(--color-review-ink)' }}>
+                style={{
+                  background: 'var(--color-review-fill)',
+                  color: 'var(--color-review-ink)'
+                }}>
                 Boxes redrawn by {mine ? 'you' : item.flag.corrected_by}
                 {item.flag.corrected_ts ? ` · ${when(item.flag.corrected_ts)}` : ''}.
                 {mine ? ' Someone else has to accept it.' : ' Accepting puts it back in the dataset.'}
@@ -438,21 +449,30 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
               <button
                 onClick={() => commit('ok')} disabled={mine}
                 title={mine ? 'You corrected this image — someone else has to accept it' : undefined}
-                className={`flex-1 rounded-md border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-45 ${
-                  status === 'ok' ? 'border-ok-fill bg-ok-fill font-semibold text-ok-ink'
-                                  : 'border-rule bg-card hover:bg-hover'}`}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-45 ${status === 'ok' ? 'border-ok-fill bg-ok-fill font-semibold text-ok-ink'
+                    : 'border-rule bg-card hover:bg-hover'}`}
               >
                 OK
               </button>
               <button
                 onClick={() => commit('no')}
-                className={`flex-1 rounded-md border px-3 py-2 text-sm ${
-                  status === 'no' ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
-                                  : 'border-rule bg-card hover:bg-hover'}`}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm ${status === 'no' ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
+                    : 'border-rule bg-card hover:bg-hover'}`}
               >
                 Not OK
               </button>
             </div>
+
+            <button
+              onClick={() => commit(status === 'deleted' ? '' : 'deleted')}
+              className={`mt-2 w-full rounded-md border px-3 py-1.5 text-xs ${status === 'deleted'
+                  ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
+                  : 'border-rule bg-card text-ink2 hover:bg-hover hover:text-no'}`}
+            >
+              {status === 'deleted'
+                ? 'Deleted — click to restore'
+                : 'Delete image'}
+            </button>
 
             <p className={`mt-2 min-h-4 text-[11px] ${error ? 'text-no' : 'text-muted'}`}>
               {error || saved}
@@ -463,25 +483,27 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
                 Reviewer
                 <input
                   value={who}
-                  onChange={(e) => { setWho(e.target.value); localStorage.setItem('reviewer', e.target.value.trim()) }}
+                  onChange={(e) => nameSelf(e.target.value)}
                   placeholder="your name"
                   className="flex-1 rounded-md border border-rule bg-card px-2 py-1 text-xs"
                 />
               </label>
             )}
-            <Thread
-              key={item.name} item={item} version={version} split={split}
-              who={who} boxRef={composeRef} onFlag={onFlag}
-            />
-
+          </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-2 text-[11px] text-muted">
+          <Thread
+            key={item.name} item={item} version={version} split={split}
+            who={who} boxRef={composeRef}
+            onSaved={(flag) => onFlag(item.name, flag)}
+          />
+
+          <div className="mt-3 flex shrink-0 items-center gap-2 text-[11px] text-muted">
             <button onClick={() => onIndex(Math.max(index - 1, 0))}
-                    className="rounded border border-line px-2 py-0.5 hover:bg-hover">←</button>
+              className="rounded border border-line px-2 py-0.5 hover:bg-hover">←</button>
             <button onClick={() => onIndex(Math.min(index + 1, items.length - 1))}
-                    className="rounded border border-line px-2 py-0.5 hover:bg-hover">→</button>
-            <span>move · <b>1</b> OK · <b>2</b> not OK · <b>esc</b> close</span>
+              className="rounded border border-line px-2 py-0.5 hover:bg-hover">→</button>
+            <span>move · <b>1</b> OK · <b>2</b> not OK · <b>3</b> delete · <b>b</b> boxes · <b>esc</b> close</span>
           </div>
         </div>
       </div>
@@ -493,182 +515,5 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
 /** Every comment left on one image, oldest first, plus the box to add another.
  *  Comments are independent of the verdict — an image can collect a question
  *  from one reviewer and an answer from the next without anyone judging it. */
-function Thread({ item, version, split, who, boxRef, onFlag }) {
-  const comments = item.flag?.comments ?? []
-  const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const me = who.trim() || 'anon'
-  // A comment the proxy failed to attribute belongs to nobody, and the server
-  // lets anyone tidy those up. Mirror that here or the buttons never appear.
-  const mine = (c) => (c.reviewer || 'anon') === me || c.reviewer === UNOWNED
-
-  const save = async (id, text) => {
-    onFlag(item.name, await editComment({
-      v: version, split, image: item.name, id, text, reviewer: who.trim(),
-    }))
-  }
-
-  const send = async () => {
-    const body = text.trim()
-    if (!body || busy) return
-    setBusy(true)
-    setError('')
-    try {
-      onFlag(item.name, await addComment({
-        v: version, split, image: item.name, text: body, reviewer: who.trim(),
-      }))
-      setText('')
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const remove = async (id) => {
-    setError('')
-    try {
-      onFlag(item.name, await deleteComment({
-        v: version, split, image: item.name, id, reviewer: who.trim(),
-      }))
-    } catch (e) {
-      setError(e.message)
-    }
-  }
-
-  return (
-    <div className="mt-4 border-t border-line pt-3">
-      <h3 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-ink2">
-        <Bubble />
-        Comments {comments.length > 0 && <span className="num">({comments.length})</span>}
-      </h3>
-
-      {comments.length === 0 ? (
-        <p className="text-[11px] text-muted">None yet.</p>
-      ) : (
-        <ul className="space-y-2">
-          {comments.map((c) => (
-            <Comment
-              key={c.id} c={c} mine={mine(c)}
-              onEdit={(text) => save(c.id, text)} onDelete={() => remove(c.id)}
-            />
-          ))}
-        </ul>
-      )}
-
-      <textarea
-        ref={boxRef} value={text} onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter alone has to stay a newline: these run to several lines.
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() }
-        }}
-        placeholder="box is off, wrong class, blurred…"
-        className="mt-2 min-h-[58px] w-full resize-y rounded-md border border-rule bg-card p-2 text-sm"
-      />
-      <div className="flex items-center gap-2">
-        <button
-          onClick={send} disabled={busy || !text.trim()}
-          className="rounded-md border border-rule bg-card px-2.5 py-1 text-xs hover:bg-hover disabled:opacity-45"
-        >
-          {busy ? 'Saving…' : 'Add comment'}
-        </button>
-        <span className="text-[11px] text-muted">⌘↵ / ctrl↵</span>
-      </div>
-
-      {error && <p className="mt-1 text-[11px] text-no">{error}</p>}
-      <p className="mt-2 text-[11px] text-muted">
-        Every comment on an image marked not OK travels with it into EXCLUDED.csv.
-      </p>
-    </div>
-  )
-}
 
 
-/** One comment, readable until you click edit. Only the author's own comments
- *  offer the buttons; the server enforces the same rule regardless. */
-function Comment({ c, mine, onEdit, onDelete }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(c.text)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const start = () => { setDraft(c.text); setError(''); setEditing(true) }
-
-  const commit = async () => {
-    const text = draft.trim()
-    if (!text || busy) return
-    if (text === c.text) return setEditing(false)
-    setBusy(true)
-    try {
-      await onEdit(text)
-      setEditing(false)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const drop = async () => {
-    setError('')
-    try {
-      await onDelete()
-    } catch (e) {
-      setError(e.message)
-    }
-  }
-
-  return (
-    <li className="rounded-md border border-line bg-page px-2.5 py-1.5">
-      <div className="flex items-baseline gap-2 text-[11px] text-muted">
-        <b className="font-semibold text-ink2">{c.reviewer || 'anon'}</b>
-        <span className="num">{when(c.ts)}</span>
-        {c.edited && <span title={`edited ${when(c.edited)}`}>edited</span>}
-        <span className="flex-1" />
-        {mine && !editing && (
-          <>
-            <button onClick={start} title="Edit this comment"
-                    className="rounded px-1 hover:bg-hover hover:text-ink">edit</button>
-            <button onClick={drop} title="Delete this comment"
-                    className="rounded px-1 leading-none hover:bg-hover hover:text-no">×</button>
-          </>
-        )}
-      </div>
-
-      {editing ? (
-        <>
-          <textarea
-            autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              // Both keys are claimed by the viewer behind this panel, so stop
-              // them here: esc would close the image, not the edit box.
-              if (e.key === 'Escape') { e.stopPropagation(); setEditing(false) }
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault(); e.stopPropagation(); commit()
-              }
-            }}
-            className="mt-1 min-h-[58px] w-full resize-y rounded-md border border-rule bg-card p-2 text-sm"
-          />
-          <div className="flex items-center gap-2">
-            <button
-              onClick={commit} disabled={busy || !draft.trim()}
-              className="rounded-md border border-rule bg-card px-2.5 py-1 text-xs hover:bg-hover disabled:opacity-45"
-            >
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-            <button onClick={() => setEditing(false)}
-                    className="rounded-md px-2 py-1 text-xs text-ink2 hover:bg-hover">
-              Cancel
-            </button>
-            <span className="text-[11px] text-muted">⌘↵ save · esc cancel</span>
-          </div>
-        </>
-      ) : (
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">{c.text}</p>
-      )}
-
-      {error && <p className="mt-1 text-[11px] text-no">{error}</p>}
-    </li>
-  )
-}

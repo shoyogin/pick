@@ -14,8 +14,12 @@ const GRAB = 9        // handle grab radius, in screen pixels
  * at any display size.
  */
 export default function BoxEditor({
-  src, alt, dim, boxes, classes, cls, selected, onSelect, onChange,
+  src, alt, dim, boxes, classes, cls, selected, onSelect, onChange, size = null,
+  hiddenClasses = null,
 }) {
+  // A hidden class cannot be grabbed, and its boxes are not drawn — but they
+  // keep their place in the array, so indices stay valid for editing.
+  const veiled = useCallback((box) => !!hiddenClasses?.has(box[0]), [hiddenClasses])
   const frame = useRef(null)
   const [drag, setDrag] = useState(null)
   const [hover, setHover] = useState(null)
@@ -34,14 +38,14 @@ export default function BoxEditor({
 
     // Handles win over boxes: they sit on the boundary, where a plain hit
     // test would read as whatever is behind.
-    if (selected >= 0 && boxes[selected]) {
+    if (selected >= 0 && boxes[selected] && !veiled(boxes[selected])) {
       const h = hitHandle(boxes[selected], x, y, pad)
       if (h) {
         return setDrag({ kind: 'resize', handle: h.id, i: selected,
                          start: boxes[selected] })
       }
     }
-    const i = hitBox(boxes, x, y)
+    const i = hitBox(boxes, x, y, veiled)
     if (i >= 0) {
       onSelect(i)
       // The box as it was at drag start, plus the total offset since.
@@ -57,9 +61,9 @@ export default function BoxEditor({
   const onPointerMove = (e) => {
     const { x, y, pad } = at(e)
     if (!drag) {
-      const h = selected >= 0 && boxes[selected]
+      const h = selected >= 0 && boxes[selected] && !veiled(boxes[selected])
         ? hitHandle(boxes[selected], x, y, pad) : null
-      return setHover(h ? h.cursor : hitBox(boxes, x, y) >= 0 ? 'move' : 'crosshair')
+      return setHover(h ? h.cursor : hitBox(boxes, x, y, veiled) >= 0 ? 'move' : 'crosshair')
     }
     if (drag.kind === 'draw') return setDrag({ ...drag, x, y })
     const next = boxes.slice()
@@ -100,15 +104,17 @@ export default function BoxEditor({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={() => !drag && setHover(null)}
-      className="relative max-h-full max-w-full touch-none select-none"
+      className={`relative touch-none select-none ${
+        size ? 'shrink-0' : 'max-h-full max-w-full'}`}
       style={{
-        aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3',
+        ...(size || { aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3' }),
         cursor: drag ? 'grabbing' : hover || 'crosshair',
       }}
     >
       <img src={src} alt={alt} draggable={false} className="block size-full" />
 
       {boxes.map((box, i) => {
+        if (veiled(box)) return null
         const r = toRect(box)
         const on = i === selected
         return (

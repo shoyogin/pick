@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import BoxEditor, { useBoxHistory } from '../components/BoxEditor'
+import ClassesButton from '../components/ClassesButton'
+import { Thread } from '../components/Thread'
+import ZoomPane, { BTN, BTN_ON } from '../components/ZoomPane'
 import { getQueue, imgUrl, revertLabels, saveFlag, saveLabels } from '../lib/api'
 import { boxesEqual } from '../lib/boxes'
 import { classColor } from '../lib/colors'
@@ -12,9 +15,9 @@ import { useData } from '../lib/store'
  * it, so the accept button lives on Review, not here.
  */
 export default function Fix() {
-  const { version, stats, meta } = useData()
+  const { version, stats, meta, classPrefs: prefs, who, nameSelf } = useData()
   const classes = stats?.classes ?? []
-  const me = meta?.user || ''
+  const me = who.trim() || 'anon'
 
   const [queue, setQueue] = useState([])
   const [busy, setBusy] = useState(true)
@@ -42,6 +45,15 @@ export default function Fix() {
   const replace = useCallback((name, split, patch) => {
     setQueue((q) => q.map((it) =>
       (it.name === name && it.split === split ? { ...it, ...patch } : it)))
+  }, [])
+
+  // A deleted image is no longer waiting to be fixed, so it leaves the queue.
+  const drop = useCallback((name, split) => {
+    setQueue((q) => {
+      const next = q.filter((it) => !(it.name === name && it.split === split))
+      setOpenAt((i) => Math.min(i, Math.max(next.length - 1, 0)))
+      return next
+    })
   }, [])
 
   if (!version) return <p className="p-8 text-sm text-muted">No version selected.</p>
@@ -83,7 +95,8 @@ export default function Fix() {
       {item ? (
         <Bench
           key={`${item.split}/${item.name}`} item={item} version={version}
-          classes={classes} me={me} onPatch={replace}
+          classes={classes} me={me} who={who} nameSelf={nameSelf}
+          proxyUser={meta?.user} prefs={prefs} onPatch={replace} onDrop={drop}
           onNext={() => setOpenAt((i) => Math.min(i + 1, queue.length - 1))}
           hasNext={openAt < queue.length - 1}
         />
@@ -96,7 +109,8 @@ export default function Fix() {
   )
 }
 
-function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
+function Bench({ item, version, classes, me, who, nameSelf, proxyUser, prefs,
+                 onPatch, onDrop, onNext, hasNext }) {
   const saved = useMemo(() => item.boxes, [item.boxes])
   const hist = useBoxHistory(saved, `${item.split}/${item.name}`)
   const [cls, setCls] = useState(() => saved[0]?.[0] ?? 0)
@@ -125,7 +139,7 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.matches('textarea, input')) return
+      if (e.target.matches('textarea, input') || prefs.allHidden) return
       if (e.key === 'Escape') setSelected(-1)
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); remove() }
       if (e.key >= '1' && e.key <= '9' && !e.metaKey && !e.ctrlKey) {
@@ -139,7 +153,7 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [remove, setClassOf, classes.length, hist])
+  }, [remove, setClassOf, classes.length, hist, prefs.allHidden])
 
   const run = async (what, fn) => {
     setBusy(what)
@@ -176,6 +190,13 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
     onPatch(item.name, item.split, { flag })
   })
 
+  const deleteImage = () => run('delete', async () => {
+    await saveFlag({
+      v: version, split: item.split, image: item.name, status: 'deleted',
+    })
+    onDrop(item.name, item.split)
+  })
+
   return (
     <section className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-5 py-2.5 text-sm">
@@ -198,15 +219,34 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-stage p-3">
-          <BoxEditor
-            src={imgUrl(version, item.split, item.name)} alt={item.name}
-            dim={item.dim} boxes={hist.boxes} classes={classes} cls={cls}
-            selected={selected} onSelect={setSelected} onChange={hist.set}
-          />
-        </div>
+        <ZoomPane
+          dim={item.dim} resetKey={`${item.split}/${item.name}`} grab="modifier"
+          toolbarExtra={<ClassesButton classes={classes} prefs={prefs}
+                                       btn={BTN} btnOn={BTN_ON} />}
+        >
+          {(frame) => (
+            <BoxEditor
+              src={imgUrl(version, item.split, item.name)} alt={item.name} size={frame}
+              dim={item.dim} boxes={hist.boxes} classes={classes} cls={cls}
+              selected={selected} onSelect={setSelected} onChange={hist.set}
+              hiddenClasses={prefs.hiddenIdx}
+            />
+          )}
+        </ZoomPane>
 
-        <div className="w-full shrink-0 overflow-y-auto border-t border-line bg-card p-4 lg:w-72 lg:border-l lg:border-t-0">
+        <div className="flex min-h-0 w-full shrink-0 flex-col border-t border-line bg-card p-4 lg:w-80 lg:border-l lg:border-t-0">
+          <div className="max-h-[60%] shrink-0 overflow-y-auto">
+          {status && (
+            <p className="mb-3 flex items-center gap-2 text-xs">
+              <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${
+                status === 'review' ? 'bg-review-fill text-review-ink' : 'bg-no-fill text-no-ink'}`}>
+                {status === 'review' ? 'Review' : 'not OK'}
+              </span>
+              <span className="text-muted">
+                {item.flag?.reviewer ? `${item.flag.reviewer} · ${when(item.flag.ts)}` : ''}
+              </span>
+            </p>
+          )}
           <h2 className="text-xs font-medium text-ink2">
             Class for new boxes{selected >= 0 ? ' and the selected one' : ''}
           </h2>
@@ -269,14 +309,47 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
                 {item.flag?.corrected ? 'Revert to original' : 'Leave rejected'}
               </button>
             </div>
+            <button
+              onClick={deleteImage} disabled={!!busy}
+              className="w-full rounded-md border border-rule bg-card px-2 py-1.5 text-xs text-ink2 hover:bg-hover hover:text-no disabled:opacity-40"
+            >
+              {busy === 'delete' ? 'Deleting…' : 'Delete image'}
+            </button>
           </div>
 
           {error && <p className="mt-2 text-[11px] text-no">{error}</p>}
 
-          <p className="mt-4 text-[11px] text-muted">
-            Drag empty space to draw · drag inside to move · corners to resize ·
-            <b> 1</b>–<b>9</b> class · <b>⌫</b> delete · <b>⌘Z</b> undo
-          </p>
+          {prefs.allHidden ? (
+            <p className="mt-4 rounded-md border border-line px-2 py-1.5 text-[11px] text-ink2">
+              Every class is hidden, so editing is off — nothing is changed by
+              accident while you look at the picture. <b>b</b> brings them back.
+            </p>
+          ) : (
+            <p className="mt-4 text-[11px] text-muted">
+              Drag empty space to draw · drag inside to move · corners to resize ·
+              <b> 1</b>–<b>9</b> class · <b>⌫</b> delete · <b>⌘Z</b> undo ·
+              <b> b</b> hide boxes
+              {prefs.anyHidden && ' · a hidden class cannot be selected or drawn on'}
+            </p>
+          )}
+
+          {proxyUser == null && (
+            <label className="mt-3 flex items-center gap-2 text-xs text-ink2">
+              Reviewer
+              <input
+                value={who} onChange={(e) => nameSelf(e.target.value)}
+                placeholder="your name"
+                className="flex-1 rounded-md border border-rule bg-card px-2 py-1 text-xs"
+              />
+            </label>
+          )}
+          </div>
+
+          <Thread
+            key={`${item.split}/${item.name}`} item={item} version={version}
+            split={item.split} who={who}
+            onSaved={(flag) => onPatch(item.name, item.split, { flag })}
+          />
         </div>
       </div>
     </section>
