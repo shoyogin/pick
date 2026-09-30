@@ -215,7 +215,7 @@ function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext })
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <ZoomPane dim={item.dim} resetKey={`${item.split}/${item.name}`}>
+        <ZoomPane dim={item.dim} resetKey={`${item.split}/${item.name}`} grab="modifier">
           {(frame) => (
             <BoxEditor
               src={imgUrl(version, item.split, item.name)} alt={item.name} size={frame}

@@ -381,7 +381,7 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
       onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="grid max-h-[94vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl bg-surface md:grid-cols-[1fr_320px]"
+        className="grid h-[94vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl bg-surface md:grid-cols-[1fr_320px] md:grid-rows-[minmax(0,1fr)]"
       >
         <ZoomPane dim={item.dim} resetKey={item.name}>
           {(frame) => (

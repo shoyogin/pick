@@ -17,7 +17,9 @@ export default function BoxOverlay({
       className={size ? 'relative shrink-0' : 'relative max-h-full max-w-full'}
       style={size || { aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3' }}
     >
-      <img src={src} alt={alt} loading="lazy" className="block size-full" />
+      {/* draggable: the browser's own image drag would swallow a pan gesture */}
+      <img src={src} alt={alt} loading="lazy" draggable={false}
+           className="block size-full" />
       {boxes.map(([c, x, y, w, h], i) => (
         <div
           key={i}

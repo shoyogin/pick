@@ -10,13 +10,21 @@ const MAX_NATURAL = 8      // never past 8 image pixels per screen pixel
  * free, while borders, class tags and editor handles keep their CSS pixel size
  * — a `transform: scale()` would blow those up with the image.
  *
- * Pan is native scroll: dragging belongs to the editor underneath.
+ * Dragging pans. Where the child owns the drag — the editor, where it draws
+ * and moves boxes — `grab="modifier"` reserves it for the middle button, a
+ * held space bar, or the hand button in the toolbar.
  */
-export default function ZoomPane({ dim, resetKey, toolbarExtra, children }) {
+export default function ZoomPane({
+  dim, resetKey, toolbarExtra, grab = 'always', children,
+}) {
   const pane = useRef(null)
   const [box, setBox] = useState(null)
   const [zoom, setZoom] = useState(1)      // 1 = fits the pane
   const pending = useRef(null)
+  const [hand, setHand] = useState(false)
+  const [panning, setPanning] = useState(false)
+  const from = useRef(null)
+  const space = useRef(false)
 
   useEffect(() => {
     const el = pane.current
@@ -102,11 +110,70 @@ export default function ZoomPane({ dim, resetKey, toolbarExtra, children }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [zoom, centre])
 
+  // Capture phase: the editor must not see a pointerdown that means "pan".
+  const mayPan = useCallback(
+    (e) => grab === 'always' || hand || space.current || e.button === 1,
+    [grab, hand])
+
+  const onPointerDown = (e) => {
+    if (!mayPan(e)) return
+    const el = pane.current
+    if (!el) return
+    e.preventDefault()
+    e.stopPropagation()
+    from.current = { x: e.clientX, y: e.clientY, l: el.scrollLeft, t: el.scrollTop }
+    el.setPointerCapture(e.pointerId)
+    setPanning(true)
+  }
+
+  const onPointerMove = (e) => {
+    const f = from.current
+    if (!f) return
+    e.stopPropagation()
+    const el = pane.current
+    el.scrollLeft = f.l - (e.clientX - f.x)
+    el.scrollTop = f.t - (e.clientY - f.y)
+  }
+
+  const endPan = (e) => {
+    if (!from.current) return
+    e.stopPropagation()
+    pane.current?.releasePointerCapture?.(e.pointerId)
+    from.current = null
+    setPanning(false)
+  }
+
+  useEffect(() => {
+    if (grab === 'always') return
+    const down = (e) => {
+      if (e.code === 'Space' && !e.target.matches('textarea, input')) {
+        space.current = true
+        e.preventDefault()            // space would otherwise scroll the page
+      }
+    }
+    const up = (e) => { if (e.code === 'Space') space.current = false }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => {
+      window.removeEventListener('keydown', down)
+      window.removeEventListener('keyup', up)
+    }
+  }, [grab])
+
+  const canGrab = grab === 'always' || hand
   const btn = 'rounded border border-rule bg-card px-1.5 py-0.5 hover:bg-hover disabled:opacity-40'
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-stage">
-      <div ref={pane} className="size-full overflow-auto">
+    <div className="relative h-full min-h-0 flex-1 overflow-hidden bg-stage">
+      <div
+        ref={pane}
+        onPointerDownCapture={onPointerDown}
+        onPointerMoveCapture={onPointerMove}
+        onPointerUpCapture={endPan}
+        onPointerCancelCapture={endPan}
+        className="size-full overflow-auto"
+        style={{ cursor: panning ? 'grabbing' : canGrab ? 'grab' : undefined }}
+      >
         {/* m-auto centres while it fits and collapses to 0 once it does not.
             justify-center would split the overflow across both sides, and the
             half above and left of the origin cannot be scrolled to. */}
@@ -124,6 +191,15 @@ export default function ZoomPane({ dim, resetKey, toolbarExtra, children }) {
         <button onClick={() => setZoom(1)} title="Fit to pane (0)" className={btn}>Fit</button>
         <button onClick={() => centre(1 / atFit)} title="One image pixel per screen pixel"
                 className={btn}>1:1</button>
+        {grab !== 'always' && (
+          <button
+            onClick={() => setHand((v) => !v)}
+            title="Drag to pan instead of editing (or hold space, or drag with the middle button)"
+            className={hand ? 'rounded border border-ink bg-ink px-1.5 py-0.5 text-page' : btn}
+          >
+            Pan
+          </button>
+        )}
         {toolbarExtra}
       </div>
     </div>

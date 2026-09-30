@@ -102,10 +102,14 @@ undone by pressing `3` again. Deleted images stay out of the Fix queue — they
 are not waiting to be repaired.
 
 **Zoom** works the same here and in Fix: the wheel zooms toward the cursor, `+`
-and `-` step, `0` fits the pane, and scrolling pans. The readout is the image's
-natural size, so *1:1* is one image pixel per screen pixel — the scale at which
-a box a few pixels out is visible. Boxes, class tags and the editor's handles
-keep their size as you zoom, so a handle stays grabbable at any magnification.
+and `-` step, `0` fits the pane. Drag the image to pan — in Fix, where dragging
+draws and moves boxes instead, pan by holding **space**, dragging with the
+**middle button**, or switching on the **Pan** button in the toolbar.
+
+The readout is the image's natural size, so *1:1* is one image pixel per screen
+pixel — the scale at which a box a few pixels out is visible. Boxes, class tags
+and the editor's handles keep their size as you zoom, so a handle stays
+grabbable at any magnification.
 
 **Comments** are a thread. Any image takes any number of them from any number of
 reviewers, with or without a verdict, and a later verdict does not disturb them.
