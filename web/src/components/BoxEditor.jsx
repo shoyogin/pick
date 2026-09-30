@@ -14,7 +14,7 @@ const GRAB = 9        // handle grab radius, in screen pixels
  * at any display size.
  */
 export default function BoxEditor({
-  src, alt, dim, boxes, classes, cls, selected, onSelect, onChange,
+  src, alt, dim, boxes, classes, cls, selected, onSelect, onChange, size = null,
 }) {
   const frame = useRef(null)
   const [drag, setDrag] = useState(null)
@@ -100,9 +100,10 @@ export default function BoxEditor({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerLeave={() => !drag && setHover(null)}
-      className="relative max-h-full max-w-full touch-none select-none"
+      className={`relative touch-none select-none ${
+        size ? 'shrink-0' : 'max-h-full max-w-full'}`}
       style={{
-        aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3',
+        ...(size || { aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3' }),
         cursor: drag ? 'grabbing' : hover || 'crosshair',
       }}
     >

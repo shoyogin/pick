@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
 import ConfirmDownload from '../components/ConfirmDownload'
+import ZoomPane from '../components/ZoomPane'
 import {
   UNOWNED, addComment, deleteComment, editComment, getItems, getSummary,
   imgUrl, reviewCsvUrl, saveFlag,
@@ -65,7 +66,7 @@ export default function Review() {
   useEffect(() => { load(0) }, [load])
 
   const reloadSummary = useCallback(() => {
-    if (version) getSummary(version).then(setSummary).catch(() => {})
+    if (version) getSummary(version).then(setSummary).catch(() => { })
   }, [version])
   useEffect(reloadSummary, [reloadSummary])
 
@@ -83,7 +84,7 @@ export default function Review() {
   }, [reloadSummary])
 
   const done = (summary.ok || 0) + (summary.no || 0) + (summary.review || 0)
-                + (summary.deleted || 0)
+    + (summary.deleted || 0)
   // Rejects and fixes still waiting on approval both stay out of the export.
   const held = (summary.no || 0) + (summary.review || 0) + (summary.deleted || 0)
 
@@ -95,9 +96,8 @@ export default function Review() {
             {splits.map((s) => (
               <button
                 key={s} onClick={() => setSplit(s)}
-                className={`flex-1 rounded-md border px-2 py-1.5 text-xs ${
-                  s === split ? 'border-ink bg-ink font-semibold text-page'
-                              : 'border-rule bg-card hover:bg-hover'}`}
+                className={`flex-1 rounded-md border px-2 py-1.5 text-xs ${s === split ? 'border-ink bg-ink font-semibold text-page'
+                    : 'border-rule bg-card hover:bg-hover'}`}
               >
                 {splitLabel(s)} <span className="num opacity-65">{stats.splits[s]}</span>
               </button>
@@ -121,8 +121,7 @@ export default function Review() {
               <button
                 onClick={() => setMatchAll((v) => !v)}
                 title="Any: the image has at least one ticked class. All: it has every one."
-                className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                  matchAll ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2'}`}
+                className={`rounded-full border px-2 py-0.5 text-[11px] ${matchAll ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2'}`}
               >
                 {matchAll ? 'all' : 'any'}
               </button>
@@ -211,7 +210,7 @@ export default function Review() {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3">
               {items.map((it, i) => (
                 <Card key={it.name} item={it} classes={classes}
-                      version={version} split={split} onOpen={() => setOpen(i)} />
+                  version={version} split={split} onOpen={() => setOpen(i)} />
               ))}
             </div>
           )}
@@ -281,8 +280,8 @@ function StatusPill({ status }) {
  *  already carrying a filename and a count, and a glyph reads faster there. */
 const Bubble = ({ className = '' }) => (
   <svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor"
-       strokeWidth="1.1" strokeLinejoin="round"
-       className={`size-3 shrink-0 ${className}`}>
+    strokeWidth="1.1" strokeLinejoin="round"
+    className={`size-3 shrink-0 ${className}`}>
     <path d="M1.8 2.2h8.4v5.4H5.4L3 9.8V7.6H1.8z" />
   </svg>
 )
@@ -293,8 +292,7 @@ function Card({ item, classes, version, split, onOpen }) {
   return (
     <figure
       onClick={onOpen}
-      className={`relative m-0 cursor-pointer rounded-lg border bg-card ${
-        OUT(status) ? 'border-no/40' : 'border-line hover:border-rule'}`}
+      className={`relative m-0 cursor-pointer rounded-lg border bg-card ${OUT(status) ? 'border-no/40' : 'border-line hover:border-rule'}`}
     >
       <StatusPill status={status} />
       <div className="flex h-40 items-center justify-center overflow-hidden rounded-t-lg bg-stage">
@@ -305,17 +303,16 @@ function Card({ item, classes, version, split, onOpen }) {
           />
         </div>
       </div>
-      <figcaption className={`flex items-center justify-between gap-2 rounded-b-lg border-t border-line px-2.5 py-1.5 text-xs ${
-        status === 'ok' ? 'shadow-[inset_3px_0_0_var(--color-ok)]'
-        : status === 'no' ? 'shadow-[inset_3px_0_0_var(--color-no)]'
-        : status === 'review' ? 'shadow-[inset_3px_0_0_var(--color-review-fill)]'
-        : status === 'deleted' ? 'shadow-[inset_3px_0_0_var(--color-no)]' : ''}`}>
+      <figcaption className={`flex items-center justify-between gap-2 rounded-b-lg border-t border-line px-2.5 py-1.5 text-xs ${status === 'ok' ? 'shadow-[inset_3px_0_0_var(--color-ok)]'
+          : status === 'no' ? 'shadow-[inset_3px_0_0_var(--color-no)]'
+            : status === 'review' ? 'shadow-[inset_3px_0_0_var(--color-review-fill)]'
+              : status === 'deleted' ? 'shadow-[inset_3px_0_0_var(--color-no)]' : ''}`}>
         <span className={`truncate text-ink2 ${status === 'deleted' ? 'line-through' : ''}`}>
           {item.name}
         </span>
         {notes > 0 && (
           <span className="num flex shrink-0 items-center gap-1 text-muted"
-                title={`${notes} comment${notes === 1 ? '' : 's'}`}>
+            title={`${notes} comment${notes === 1 ? '' : 's'}`}>
             <Bubble />{notes}
           </span>
         )}
@@ -328,7 +325,7 @@ function Card({ item, classes, version, split, onOpen }) {
 }
 
 function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
-                  onIndex, onClose, onFlag }) {
+  onIndex, onClose, onFlag }) {
   const item = items[index]
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
@@ -381,23 +378,25 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
-         onClick={onClose}>
+      onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="grid max-h-[94vh] w-full max-w-6xl grid-cols-1 overflow-hidden rounded-xl bg-surface md:grid-cols-[1fr_320px]"
       >
-        <div className="flex min-h-0 items-center justify-center bg-stage p-2">
-          <BoxOverlay
-            src={imgUrl(version, split, item.name)} alt={item.name} big
-            dim={item.dim} boxes={item.boxes} classes={classes} tagMin={[0.05, 0.03]}
-          />
-        </div>
+        <ZoomPane dim={item.dim} resetKey={item.name}>
+          {(frame) => (
+            <BoxOverlay
+              src={imgUrl(version, split, item.name)} alt={item.name} big size={frame}
+              dim={item.dim} boxes={item.boxes} classes={classes} tagMin={[0.05, 0.03]}
+            />
+          )}
+        </ZoomPane>
 
         <div className="min-h-0 overflow-y-auto border-l border-line bg-card p-4">
           <div className="flex items-start gap-2">
             <h2 className="min-w-0 flex-1 break-all text-sm font-semibold">{item.name}</h2>
             <button onClick={onClose}
-                    className="rounded border border-line px-2 py-0.5 text-xs text-ink2 hover:bg-hover">
+              className="rounded border border-line px-2 py-0.5 text-xs text-ink2 hover:bg-hover">
               esc
             </button>
           </div>
@@ -422,7 +421,7 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
                   <tr key={i}>
                     <td className="border-b border-line py-1 pr-2">
                       <span className="mr-1.5 inline-block size-2.5 rounded-[2px] align-middle"
-                            style={{ background: classColor(c) }} />
+                        style={{ background: classColor(c) }} />
                       {classes[c] ?? c}
                     </td>
                     {rest.map((v, j) => (
@@ -438,8 +437,10 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
             <h3 className="mb-2 text-xs font-medium text-ink2">Is this label correct?</h3>
             {item.flag?.corrected && (
               <p className="mb-2 rounded-md px-2 py-1.5 text-[11px]"
-                 style={{ background: 'var(--color-review-fill)',
-                          color: 'var(--color-review-ink)' }}>
+                style={{
+                  background: 'var(--color-review-fill)',
+                  color: 'var(--color-review-ink)'
+                }}>
                 Boxes redrawn by {mine ? 'you' : item.flag.corrected_by}
                 {item.flag.corrected_ts ? ` · ${when(item.flag.corrected_ts)}` : ''}.
                 {mine ? ' Someone else has to accept it.' : ' Accepting puts it back in the dataset.'}
@@ -449,17 +450,15 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
               <button
                 onClick={() => commit('ok')} disabled={mine}
                 title={mine ? 'You corrected this image — someone else has to accept it' : undefined}
-                className={`flex-1 rounded-md border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-45 ${
-                  status === 'ok' ? 'border-ok-fill bg-ok-fill font-semibold text-ok-ink'
-                                  : 'border-rule bg-card hover:bg-hover'}`}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-45 ${status === 'ok' ? 'border-ok-fill bg-ok-fill font-semibold text-ok-ink'
+                    : 'border-rule bg-card hover:bg-hover'}`}
               >
                 OK
               </button>
               <button
                 onClick={() => commit('no')}
-                className={`flex-1 rounded-md border px-3 py-2 text-sm ${
-                  status === 'no' ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
-                                  : 'border-rule bg-card hover:bg-hover'}`}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm ${status === 'no' ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
+                    : 'border-rule bg-card hover:bg-hover'}`}
               >
                 Not OK
               </button>
@@ -467,14 +466,13 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
 
             <button
               onClick={() => commit(status === 'deleted' ? '' : 'deleted')}
-              className={`mt-2 w-full rounded-md border px-3 py-1.5 text-xs ${
-                status === 'deleted'
+              className={`mt-2 w-full rounded-md border px-3 py-1.5 text-xs ${status === 'deleted'
                   ? 'border-no-fill bg-no-fill font-semibold text-no-ink'
                   : 'border-rule bg-card text-ink2 hover:bg-hover hover:text-no'}`}
             >
               {status === 'deleted'
                 ? 'Deleted — click to restore'
-                : 'Delete image — keep it out of the dataset'}
+                : 'Delete image'}
             </button>
 
             <p className={`mt-2 min-h-4 text-[11px] ${error ? 'text-no' : 'text-muted'}`}>
@@ -501,9 +499,9 @@ function Viewer({ items, index, classes, version, split, who, setWho, proxyUser,
 
           <div className="mt-4 flex items-center gap-2 text-[11px] text-muted">
             <button onClick={() => onIndex(Math.max(index - 1, 0))}
-                    className="rounded border border-line px-2 py-0.5 hover:bg-hover">←</button>
+              className="rounded border border-line px-2 py-0.5 hover:bg-hover">←</button>
             <button onClick={() => onIndex(Math.min(index + 1, items.length - 1))}
-                    className="rounded border border-line px-2 py-0.5 hover:bg-hover">→</button>
+              className="rounded border border-line px-2 py-0.5 hover:bg-hover">→</button>
             <span>move · <b>1</b> OK · <b>2</b> not OK · <b>3</b> delete · <b>esc</b> close</span>
           </div>
         </div>
@@ -652,9 +650,9 @@ function Comment({ c, mine, onEdit, onDelete }) {
         {mine && !editing && (
           <>
             <button onClick={start} title="Edit this comment"
-                    className="rounded px-1 hover:bg-hover hover:text-ink">edit</button>
+              className="rounded px-1 hover:bg-hover hover:text-ink">edit</button>
             <button onClick={drop} title="Delete this comment"
-                    className="rounded px-1 leading-none hover:bg-hover hover:text-no">×</button>
+              className="rounded px-1 leading-none hover:bg-hover hover:text-no">×</button>
           </>
         )}
       </div>
@@ -681,7 +679,7 @@ function Comment({ c, mine, onEdit, onDelete }) {
               {busy ? 'Saving…' : 'Save'}
             </button>
             <button onClick={() => setEditing(false)}
-                    className="rounded-md px-2 py-1 text-xs text-ink2 hover:bg-hover">
+              className="rounded-md px-2 py-1 text-xs text-ink2 hover:bg-hover">
               Cancel
             </button>
             <span className="text-[11px] text-muted">⌘↵ save · esc cancel</span>

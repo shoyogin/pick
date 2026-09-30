@@ -10,11 +10,12 @@ import { classColor, classInk } from '../lib/colors'
  */
 export default function BoxOverlay({
   src, alt, dim, boxes = [], classes = [], tagMin = [0.2, 0.08], big = false,
+  size = null,
 }) {
   return (
     <div
-      className="relative max-h-full max-w-full"
-      style={{ aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3' }}
+      className={size ? 'relative shrink-0' : 'relative max-h-full max-w-full'}
+      style={size || { aspectRatio: dim ? `${dim[0]} / ${dim[1]}` : '4 / 3' }}
     >
       <img src={src} alt={alt} loading="lazy" className="block size-full" />
       {boxes.map(([c, x, y, w, h], i) => (

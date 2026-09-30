@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import BoxEditor, { useBoxHistory } from '../components/BoxEditor'
+import ZoomPane from '../components/ZoomPane'
 import { getQueue, imgUrl, revertLabels, saveFlag, saveLabels } from '../lib/api'
 import { boxesEqual } from '../lib/boxes'
 import { classColor } from '../lib/colors'
@@ -44,6 +45,15 @@ export default function Fix() {
       (it.name === name && it.split === split ? { ...it, ...patch } : it)))
   }, [])
 
+  // A deleted image is no longer waiting to be fixed, so it leaves the queue.
+  const drop = useCallback((name, split) => {
+    setQueue((q) => {
+      const next = q.filter((it) => !(it.name === name && it.split === split))
+      setOpenAt((i) => Math.min(i, Math.max(next.length - 1, 0)))
+      return next
+    })
+  }, [])
+
   if (!version) return <p className="p-8 text-sm text-muted">No version selected.</p>
 
   return (
@@ -83,7 +93,7 @@ export default function Fix() {
       {item ? (
         <Bench
           key={`${item.split}/${item.name}`} item={item} version={version}
-          classes={classes} me={me} onPatch={replace}
+          classes={classes} me={me} onPatch={replace} onDrop={drop}
           onNext={() => setOpenAt((i) => Math.min(i + 1, queue.length - 1))}
           hasNext={openAt < queue.length - 1}
         />
@@ -96,7 +106,7 @@ export default function Fix() {
   )
 }
 
-function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
+function Bench({ item, version, classes, me, onPatch, onDrop, onNext, hasNext }) {
   const saved = useMemo(() => item.boxes, [item.boxes])
   const hist = useBoxHistory(saved, `${item.split}/${item.name}`)
   const [cls, setCls] = useState(() => saved[0]?.[0] ?? 0)
@@ -176,6 +186,13 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
     onPatch(item.name, item.split, { flag })
   })
 
+  const deleteImage = () => run('delete', async () => {
+    await saveFlag({
+      v: version, split: item.split, image: item.name, status: 'deleted',
+    })
+    onDrop(item.name, item.split)
+  })
+
   return (
     <section className="flex min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-5 py-2.5 text-sm">
@@ -198,13 +215,15 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-stage p-3">
-          <BoxEditor
-            src={imgUrl(version, item.split, item.name)} alt={item.name}
-            dim={item.dim} boxes={hist.boxes} classes={classes} cls={cls}
-            selected={selected} onSelect={setSelected} onChange={hist.set}
-          />
-        </div>
+        <ZoomPane dim={item.dim} resetKey={`${item.split}/${item.name}`}>
+          {(frame) => (
+            <BoxEditor
+              src={imgUrl(version, item.split, item.name)} alt={item.name} size={frame}
+              dim={item.dim} boxes={hist.boxes} classes={classes} cls={cls}
+              selected={selected} onSelect={setSelected} onChange={hist.set}
+            />
+          )}
+        </ZoomPane>
 
         <div className="w-full shrink-0 overflow-y-auto border-t border-line bg-card p-4 lg:w-72 lg:border-l lg:border-t-0">
           <h2 className="text-xs font-medium text-ink2">
@@ -269,6 +288,12 @@ function Bench({ item, version, classes, me, onPatch, onNext, hasNext }) {
                 {item.flag?.corrected ? 'Revert to original' : 'Leave rejected'}
               </button>
             </div>
+            <button
+              onClick={deleteImage} disabled={!!busy}
+              className="w-full rounded-md border border-rule bg-card px-2 py-1.5 text-xs text-ink2 hover:bg-hover hover:text-no disabled:opacity-40"
+            >
+              {busy === 'delete' ? 'Deleting…' : 'Delete image'}
+            </button>
           </div>
 
           {error && <p className="mt-2 text-[11px] text-no">{error}</p>}

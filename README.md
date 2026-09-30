@@ -90,9 +90,22 @@ Versions are listed alphabetically, so every `t` sorts before every `v`.
 
 ## Reviewing
 
-A verdict is **OK**, **not OK**, or **Review** — corrected and waiting to be
-accepted (yellow). Keyboard: `1` OK, `2` not OK, `←` `→` move, `esc` close. An
-OK jumps to the next image; a rejection stays put with the comment box focused.
+A verdict is **OK**, **not OK**, **Review** — corrected and waiting to be
+accepted (yellow) — or **Deleted**, for an image that should not be in the
+dataset at all. Keyboard: `1` OK, `2` not OK, `3` delete, `←` `→` move, `esc`
+close. An OK jumps to the next image; a rejection stays put with the comment
+box focused.
+
+Deleting removes nothing from disk. It holds the image out of the export the
+way *not OK* does, keeps it in the grid with a struck-through name, and is
+undone by pressing `3` again. Deleted images stay out of the Fix queue — they
+are not waiting to be repaired.
+
+**Zoom** works the same here and in Fix: the wheel zooms toward the cursor, `+`
+and `-` step, `0` fits the pane, and scrolling pans. The readout is the image's
+natural size, so *1:1* is one image pixel per screen pixel — the scale at which
+a box a few pixels out is visible. Boxes, class tags and the editor's handles
+keep their size as you zoom, so a handle stays grabbable at any magnification.
 
 **Comments** are a thread. Any image takes any number of them from any number of
 reviewers, with or without a verdict, and a later verdict does not disturb them.
@@ -109,7 +122,11 @@ who said what is kept.
 Everything marked not OK collects on the **Fix** tab, across every split of the
 version. Open one and the boxes are editable: drag empty space to draw, drag
 inside a box to move it, corners and edges to resize, `1`–`9` to set the class,
-`⌫` to delete, `⌘Z` to undo.
+`⌫` to delete, `⌘Z` to undo, plus the zoom controls above.
+
+*Delete image* is here too: it marks the image **Deleted** and takes it out of
+the queue, since it is no longer waiting to be repaired. Undo that from Review,
+where deleted images are still listed.
 
 Saving does not pass a verdict. It marks the image **Review** and it waits there
 until somebody else accepts it on the Review tab — **nobody can accept their own
@@ -224,7 +241,8 @@ Everything the UI does is a plain HTTP call, so scripts can use it too.
 | `GET /file?path=` | one file |
 | `GET /download?path=&exclude=1` | streamed zip; `exclude=1` applies the review |
 
-`mode` is `all｜unreviewed｜ok｜no｜review｜commented｜unlabeled｜empty`. `cls`
+`mode` is `all｜unreviewed｜ok｜no｜review｜deleted｜commented｜unlabeled｜empty`.
+`cls`
 takes one class index or a comma list (`0,2,5`); `clsmode=any` (default) keeps images
 holding at least one, `clsmode=all` only those holding every one. Each `POST`
 answers with the image's whole flag, verdict and full thread.
