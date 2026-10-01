@@ -1,0 +1,13 @@
+# Tool configuration only — the server is a single stdlib file and is not
+# packaged. Pinned here so CI and every laptop lint the same way.
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# Bugs, not style: syntax errors, undefined names, unused imports.
+select = ["E9", "F"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

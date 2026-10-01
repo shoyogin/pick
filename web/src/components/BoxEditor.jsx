@@ -179,7 +179,7 @@ export function useBoxHistory(initial, key) {
 
   // Keyed on the image, not the array: a parent rebuilding props every render
   // would otherwise wipe the history continuously.
-  useEffect(() => { setStack([initial]); setAt(0) }, [key])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setStack([initial]); setAt(0) }, [key])
 
   const boxes = stack[at]
   const set = useCallback((next, { quiet } = {}) => {
