@@ -87,36 +87,48 @@ export function useClassPrefs(classes) {
     })
   }, [classes])
 
-  // `b` clears the picture and puts it back. It restores the selection you had
+  // Clears the picture and puts it back. It restores the selection you had
   // rather than showing everything: a peek should not undo your filtering.
   const before = useRef(null)
+  const toggleAll = useCallback(() => {
+    setHidden((h) => {
+      const all = classes.map((_, i) => keyOf(classes, i))
+      let next
+      if (h.size === all.length && all.length > 0) {
+        next = before.current ?? new Set()
+        before.current = null
+      } else {
+        before.current = h
+        next = new Set(all)
+      }
+      write(HIDDEN, Object.fromEntries([...next].map((x) => [x, 1])))
+      return next
+    })
+  }, [classes])
+
+  // The picker reads this, not the CSS variable — that is only written in an
+  // effect after render, so reading it back hands the picker the old colour.
+  const colorOf = useCallback((i) => colors[keyOf(classes, i)] ?? null, [colors, classes])
+
+  return {
+    hiddenIdx, setColor, resetColors, toggle, showAll, hideAll, toggleAll, colorOf,
+    anyHidden: hiddenIdx.size > 0,
+    allHidden: classes.length > 0 && hiddenIdx.size === classes.length,
+    customised: Object.keys(colors).length > 0,
+  }
+}
+
+
+/** `b` toggles every box, on the pages that draw boxes and nowhere else. */
+export function useBoxesShortcut(toggleAll) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'b' || e.metaKey || e.ctrlKey) return
       if (e.target.matches('textarea, input')) return
       e.preventDefault()
-      setHidden((h) => {
-        const all = classes.map((_, i) => keyOf(classes, i))
-        let next
-        if (h.size === all.length && all.length > 0) {
-          next = before.current ?? new Set()
-          before.current = null
-        } else {
-          before.current = h
-          next = new Set(all)
-        }
-        write(HIDDEN, Object.fromEntries([...next].map((x) => [x, 1])))
-        return next
-      })
+      toggleAll()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [classes])
-
-  return {
-    hiddenIdx, setColor, resetColors, toggle, showAll, hideAll,
-    anyHidden: hiddenIdx.size > 0,
-    allHidden: classes.length > 0 && hiddenIdx.size === classes.length,
-    customised: Object.keys(colors).length > 0,
-  }
+  }, [toggleAll])
 }

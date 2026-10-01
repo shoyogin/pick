@@ -14,12 +14,18 @@ export default function ClassesButton({ classes, prefs, btn, btnOn }) {
   useEffect(() => {
     if (!open) return
     const away = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false) }
-    const esc = (e) => { if (e.key === 'Escape') setOpen(false) }
+    // Capture phase, and stop it there: the viewer behind also closes on Esc,
+    // and one key press should close only the innermost thing.
+    const esc = (e) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setOpen(false)
+    }
     document.addEventListener('pointerdown', away)
-    window.addEventListener('keydown', esc)
+    window.addEventListener('keydown', esc, true)
     return () => {
       document.removeEventListener('pointerdown', away)
-      window.removeEventListener('keydown', esc)
+      window.removeEventListener('keydown', esc, true)
     }
   }, [open])
 
@@ -56,7 +62,7 @@ export default function ClassesButton({ classes, prefs, btn, btnOn }) {
                   <span className="relative size-3.5 shrink-0 rounded-[2px]"
                         style={{ background: classColor(i) }}>
                     <input
-                      type="color" value={resolvedColor(i)}
+                      type="color" value={prefs.colorOf(i) ?? resolvedColor(i)}
                       onChange={(e) => setColor(i, e.target.value)}
                       title={`Colour for ${name}`}
                       className="absolute inset-0 cursor-pointer opacity-0"

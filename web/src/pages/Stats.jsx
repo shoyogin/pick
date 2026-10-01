@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Donut from '../components/Donut'
 import { getSummary } from '../lib/api'
-import { GREY, classColor } from '../lib/colors'
+import { GREY, classColor, paletteColor } from '../lib/colors'
 import { nf, pct, splitLabel } from '../lib/format'
 import { useData } from '../lib/store'
 
@@ -72,9 +72,9 @@ export default function Stats() {
             caption="A label file can exist and still hold no boxes."
             centerLabel="images"
             data={[
-              { key: 'boxes', label: 'Has boxes', value: withBoxes, color: classColor(0) },
-              { key: 'empty', label: 'Empty label file', value: stats.empty, color: classColor(1) },
-              { key: 'none', label: 'No label file', value: stats.unlabeled, color: classColor(2) },
+              { key: 'boxes', label: 'Has boxes', value: withBoxes, color: paletteColor(0) },
+              { key: 'empty', label: 'Empty label file', value: stats.empty, color: paletteColor(1) },
+              { key: 'none', label: 'No label file', value: stats.unlabeled, color: paletteColor(2) },
             ]}
           />
           <Donut
@@ -82,7 +82,7 @@ export default function Stats() {
             caption="How the version is divided."
             centerLabel="images"
             data={Object.entries(stats.splits).map(([s, n], i) => ({
-              key: s, label: splitLabel(s), value: n, color: classColor(i),
+              key: s, label: splitLabel(s), value: n, color: paletteColor(i),
             }))}
           />
           <Donut
