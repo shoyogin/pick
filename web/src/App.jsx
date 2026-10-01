@@ -110,9 +110,16 @@ function Shell() {
       </main>
 
       <footer className="flex flex-wrap justify-center gap-x-1.5 gap-y-1 border-t border-line bg-surface px-5 py-2 text-xs text-muted">
-        <span>Authored by Ginevra Cerri</span>
+        <span>
+          Authored by{' '}
+          <a href="https://shoyogin.github.io/portfolio/" target="_blank" rel="noopener noreferrer"
+             className="text-ink2 underline underline-offset-2">
+            Ginevra Cerri
+          </a>
+        </span>
         <span aria-hidden="true">·</span>
-        <a href="https://github.com/shoyogin" className="text-ink2 underline underline-offset-2">
+        <a href="https://github.com/shoyogin" target="_blank" rel="noopener noreferrer"
+           className="text-ink2 underline underline-offset-2">
           github.com/shoyogin
         </a>
       </footer>
