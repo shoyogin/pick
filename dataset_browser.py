@@ -22,6 +22,7 @@ This server never writes to the dataset root. It opens files read-only.
 
 import argparse
 import datetime
+import hashlib
 import io
 import json
 import mimetypes
@@ -29,6 +30,7 @@ import os
 import re
 import sys
 import threading
+import traceback
 import uuid
 import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -372,7 +374,7 @@ def thumbnail(path: Path):
         return path.read_bytes(), mimetypes.guess_type(path.name)[0] or "image/jpeg"
     st = path.stat()
     tag = f"{path}|{st.st_mtime_ns}|{st.st_size}|{THUMB_MAX}"
-    cf = CACHE_DIR / (str(abs(hash(tag))) + ".jpg")
+    cf = CACHE_DIR / (hashlib.sha1(tag.encode()).hexdigest() + ".jpg")
     if cf.is_file():
         return cf.read_bytes(), "image/jpeg"
     try:
@@ -456,31 +458,34 @@ def replay(entry, rec):
 
 
 def load_flags(version: str, split: str):
-    """Replay the append-only log into {image: entry}."""
+    """Replay the append-only log into {image: entry}.
+
+    The read happens under the same lock as appends. Outside it, a save landing
+    between the read and the store would be missing from the cache — and the
+    export, the four-eyes check and the Fix queue all read the cache."""
     key = (version, split)
     with _flag_lock:
         if key in _flags:
             return _flags[key]
-    latest, f = {}, review_path(version, split)
-    if f.is_file():
-        try:
-            with open(f, "r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue          # tolerate a torn final line
-                    img = rec.get("image")
-                    if img:
-                        replay(latest.setdefault(img, blank_entry()), rec)
-        except OSError:
-            pass
-    with _flag_lock:
+        latest, f = {}, review_path(version, split)
+        if f.is_file():
+            try:
+                with open(f, "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue          # tolerate a torn final line
+                        img = rec.get("image") if isinstance(rec, dict) else None
+                        if img:
+                            replay(latest.setdefault(img, blank_entry()), rec)
+            except OSError:
+                pass
         _flags[key] = latest
-    return latest
+        return latest
 
 
 def thread(entry):
@@ -797,6 +802,11 @@ def zip_into(writer, base: Path, arc_root: str, skip=None, extra=None):
         for src, rel in walk_files(base):
             if skip and skip(rel):
                 continue
+            try:
+                # /file and /img refuse a symlink out of the root; so does this
+                safe_under_root(src)
+            except PermissionError:
+                continue
             arc = str(Path(arc_root) / rel).replace("\\", "/")
             info = zipfile.ZipInfo.from_file(src, arc)
             # JPEG/PNG are already compressed; deflating them burns CPU for ~0%.
@@ -1110,7 +1120,7 @@ class Handler(BaseHTTPRequestHandler):
                     data = f.read_bytes()
                     mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
                 return self._send(200, data, mime,
-                                  {"Cache-Control": "public, max-age=3600"})
+                                  {"Cache-Control": "private, max-age=3600"})
             return self._send(404, b"not found", "text/plain")
         except PermissionError:
             return self._send(403, b"forbidden", "text/plain")
@@ -1120,8 +1130,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": f"bad param: {e}"}, 400)
         except FileNotFoundError:
             return self._json({"error": "not found"}, 404)
-        except Exception as e:  # noqa: BLE001
-            return self._json({"error": str(e)}, 500)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            return self._json({"error": "internal error"}, 500)
 
     def do_HEAD(self):
         return self.do_GET()
@@ -1140,6 +1151,8 @@ class Handler(BaseHTTPRequestHandler):
             raise FileNotFoundError("unknown image")
         # An authenticated proxy wins over the self-declared name.
         who = body.get("reviewer", "")
+        if not isinstance(who, str):
+            raise ValueError("reviewer must be a string")
         if USER_HEADER:
             who = self.headers.get(USER_HEADER) or ""
             if not who:
@@ -1168,18 +1181,28 @@ class Handler(BaseHTTPRequestHandler):
             if u.path not in POST_MAX:
                 return self._send(404, b"not found", "text/plain")
             n = int(self.headers.get("Content-Length", 0))
+            if n < 0:
+                # read(-1) would block until the client hung up
+                return self._json({"error": "bad Content-Length"}, 400)
             if n > POST_MAX[u.path]:
                 return self._json({"error": "payload too large"}, 413)
             body = json.loads(self.rfile.read(n) or b"{}")
+            if not isinstance(body, dict):
+                return self._json({"error": "body must be a JSON object"}, 400)
             v, sp, img, who = self._target(body)
 
             if u.path == "/api/flag":
-                append_flag(v, sp, img, body.get("status", ""), who)
+                status = body.get("status", "")
+                if not isinstance(status, str):
+                    return self._json({"error": "status must be a string"}, 400)
+                append_flag(v, sp, img, status, who)
             elif u.path == "/api/comment":
-                cid = body.get("id")
+                cid, text = body.get("id"), body.get("text", "")
                 if cid is not None and (not isinstance(cid, str) or not cid):
                     return self._json({"error": "bad id"}, 400)
-                append_comment(v, sp, img, body.get("text", ""), who, cid)
+                if not isinstance(text, str):
+                    return self._json({"error": "text must be a string"}, 400)
+                append_comment(v, sp, img, text, who, cid)
             elif u.path == "/api/labels":
                 append_labels(v, sp, img, body.get("boxes"), who)
             elif u.path == "/api/labels/revert":
@@ -1206,8 +1229,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 400)
         except OSError as e:
             return self._json({"error": f"cannot write review log: {e}"}, 500)
-        except Exception as e:  # noqa: BLE001
-            return self._json({"error": str(e)}, 500)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            return self._json({"error": "internal error"}, 500)
 
 
 def main():
