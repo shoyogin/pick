@@ -17,6 +17,9 @@ export const CLASS_SLOTS = 8
 const slot = (i) => (((i % CLASS_SLOTS) + CLASS_SLOTS) % CLASS_SLOTS) + 1
 
 export const classColor = (i) => `var(--cls-${i}, var(--color-cls-${slot(i)}))`
+/** The palette alone, for charts that are not about classes: a colour chosen
+ *  for "car" should not repaint the "Has boxes" slice. */
+export const paletteColor = (i) => `var(--color-cls-${slot(i)})`
 export const classInk = (i) => `var(--cls-ink-${i}, var(--color-cls-ink-${slot(i)}))`
 
 // "Other" slices and unfilled tracks — present, but never mistaken for data.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import BoxEditor, { useBoxHistory } from '../components/BoxEditor'
 import ClassesButton from '../components/ClassesButton'
+import { useBoxesShortcut } from '../lib/classPrefs'
 import { Thread } from '../components/Thread'
 import ZoomPane, { BTN, BTN_ON } from '../components/ZoomPane'
 import { getQueue, imgUrl, revertLabels, saveFlag, saveLabels } from '../lib/api'
@@ -17,6 +18,7 @@ import { useData } from '../lib/store'
 export default function Fix() {
   const { version, stats, meta, classPrefs: prefs, who, nameSelf } = useData()
   const classes = stats?.classes ?? []
+  useBoxesShortcut(prefs.toggleAll)
   const me = who.trim() || 'anon'
 
   const [queue, setQueue] = useState([])
@@ -49,12 +51,13 @@ export default function Fix() {
 
   // A deleted image is no longer waiting to be fixed, so it leaves the queue.
   const drop = useCallback((name, split) => {
-    setQueue((q) => {
-      const next = q.filter((it) => !(it.name === name && it.split === split))
-      setOpenAt((i) => Math.min(i, Math.max(next.length - 1, 0)))
-      return next
-    })
+    setQueue((q) => q.filter((it) => !(it.name === name && it.split === split)))
   }, [])
+
+  // Keep the selection on the list however it shrank.
+  useEffect(() => {
+    setOpenAt((i) => Math.min(i, Math.max(queue.length - 1, 0)))
+  }, [queue.length])
 
   if (!version) return <p className="p-8 text-sm text-muted">No version selected.</p>
 

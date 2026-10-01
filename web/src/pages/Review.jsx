@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
 import ConfirmDownload from '../components/ConfirmDownload'
 import ClassesButton from '../components/ClassesButton'
+import { useBoxesShortcut } from '../lib/classPrefs'
 import { Bubble, Thread } from '../components/Thread'
 import ZoomPane, { BTN, BTN_ON } from '../components/ZoomPane'
 import {
@@ -27,6 +28,7 @@ const PAGE = 120
 export default function Review() {
   const { version, stats, meta, classPrefs: prefs, who, nameSelf } = useData()
   const classes = stats?.classes ?? []
+  useBoxesShortcut(prefs.toggleAll)
 
   const [split, setSplit] = useState('')
   const [mode, setMode] = useState('all')

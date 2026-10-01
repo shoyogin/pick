@@ -19,7 +19,9 @@ services:
     read_only: true
     tmpfs:
       # Thumbnail cache (--cache /var/cache/thumbs); HOME=/var/cache in the image.
-      - /var/cache:uid=1500,gid=1001,mode=0755
+      # Sized: tmpfs counts against mem_limit, so an unbounded cache on a large
+      # version would OOM the container. A full cache just stops caching.
+      - /var/cache:uid=1500,gid=1001,mode=0755,size=192m
       - /tmp:uid=1500,gid=1001,mode=1777
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
