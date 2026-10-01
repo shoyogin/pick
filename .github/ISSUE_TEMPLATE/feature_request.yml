@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest something the browser should do.
+description: Suggest something Pick should do.
 labels: [enhancement]
 body:
   - type: textarea

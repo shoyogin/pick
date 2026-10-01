@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in the dataset browser does not work as it should.
+description: Something in Pick does not work as it should.
 labels: [bug]
 body:
   - type: textarea
@@ -53,7 +53,7 @@ body:
     id: logs
     attributes:
       label: Server log
-      description: The relevant lines from `docker compose logs browser` (or `caddy`), if any.
+      description: The relevant lines from `docker compose logs pick` (or `caddy`), if any.
       render: shell
 
   - type: checkboxes

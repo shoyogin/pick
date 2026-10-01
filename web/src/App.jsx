@@ -60,7 +60,7 @@ function Shell() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-line bg-surface px-5 py-3">
-        <span className="font-semibold tracking-tight">Dataset browser</span>
+        <span className="font-semibold tracking-tight text-cherry">Pick</span>
         <nav className="flex gap-1">
           {tabs.map((t) => (
             <NavLink

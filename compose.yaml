@@ -1,8 +1,8 @@
-# Dataset review GUI — browser is internal-only; Caddy is the sole entrypoint.
+# Pick — the app is internal-only; Caddy is the sole entrypoint.
 # Build: docker compose build --build-arg DVC_GID=$(getent group dvc | cut -d: -f3)
 
 services:
-  browser:
+  pick:
     build:
       context: .
       dockerfile: Dockerfile
@@ -44,7 +44,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    depends_on: [browser]
+    depends_on: [pick]
     restart: unless-stopped
 
 volumes:

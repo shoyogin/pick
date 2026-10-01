@@ -4,7 +4,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 from PIL import Image
 
-import dataset_browser as m
+import pick as m
 
 CLASSES = "car\nperson\ntent\n"
 LABEL = "0 0.5 0.5 0.2 0.2\n1 0.25 0.25 0.1 0.1\n"
