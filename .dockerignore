@@ -1,0 +1,12 @@
+# Explicit, so the build context does not depend on whether this Docker version
+# happens to honour .gitignore. node_modules in particular holds host binaries
+# that would overwrite the image's own after `npm ci`.
+.git
+**/node_modules
+web/dist
+tests
+**/__pycache__
+
+# Credentials and per-host settings never belong in a build context.
+.env
+caddy.env

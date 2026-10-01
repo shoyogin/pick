@@ -30,6 +30,27 @@ python3 dataset_browser.py /path/to/datasets --review /path/to/review --port 880
 cd web && npm run dev            # http://localhost:5173
 ```
 
+## Checks
+
+Every pull request and every push to `main` runs [CI](.github/workflows/ci.yml):
+lint and tests for the server and the web app, and a Docker build from a clean
+checkout that then starts the container and asks it for `/api/versions`. The
+same checks run locally:
+
+```bash
+pip install Pillow pytest ruff
+ruff check . && pytest                       # server
+cd web && npm run lint && npm test           # web
+```
+
+Lint is limited to things that are bugs — undefined names, unused imports,
+hook misuse — not style. It matters most on the web side: the build compiles a
+component that was never imported, or a variable read outside its scope, and
+only the browser finds out. `tests/test_review_fixes.py` pins the code-review
+fixes (the review-log race, input validation, symlinks in downloads).
+
+Issues use [templates](.github/ISSUE_TEMPLATE/) for bugs and feature requests.
+
 ## Dataset layout
 
 ```
