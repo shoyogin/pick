@@ -25,6 +25,7 @@
   --color-ink2: #52514e;
   --color-muted: #898781;
   --color-brand: #2a78d6;       /* links, focus rings, checkboxes */
+  --color-cherry: #a8123f;      /* the Pick wordmark and logo */
 
   --color-ok: #0ca30c;          /* verdict marks and text */
   --color-ok-fill: #0ca30c;
@@ -71,6 +72,7 @@
     --color-ink2: #c3c2b7;
     --color-muted: #898781;
     --color-brand: #3987e5;
+    --color-cherry: #f2557e;
 
     --color-ok: #0ca30c;
     --color-ok-fill: #0ca30c;
@@ -108,6 +110,7 @@
   --color-ink2: #c3c2b7;
   --color-muted: #898781;
   --color-brand: #3987e5;
+  --color-cherry: #f2557e;
 
   --color-ok: #0ca30c;
   --color-ok-fill: #0ca30c;

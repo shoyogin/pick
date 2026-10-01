@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Dataset Browser — JSON API + static host for the React review UI.
+Pick — JSON API + static host for the React review UI.
 
 Usage:
-    python3 dataset_browser.py /srv/data/datasets --port 8800 --web web/dist
+    python3 pick.py /srv/data/datasets --port 8800 --web web/dist
 
 Expects, at any depth up to VERSION_DEPTH under the root:
     <version>/images/<split>/*.jpg
@@ -833,7 +833,7 @@ def built_line():
 
 
 def exclusion_manifest(version, rej):
-    """The receipt for what an export left out."""
+    """The record of what an export left out."""
     n = sum(len(v) for v in rej.values())
     out = [
         f"# {version} — filtered export",
@@ -853,7 +853,7 @@ def exclusion_manifest(version, rej):
 
 
 def correction_manifest(version, fix):
-    """The receipt for the labels this export replaced."""
+    """The record of the labels this export replaced."""
     n = sum(len(v) for v in fix.values())
     out = [
         f"# {version} — corrected labels",
@@ -917,7 +917,7 @@ def download_plan(version):
 # ---------------------------------------------------------------- http layer
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DatasetBrowser/2.0"
+    server_version = "Pick/2.0"
     protocol_version = "HTTP/1.1"     # required for chunked download streaming
 
     def log_message(self, fmt, *args):
@@ -1236,7 +1236,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     global ROOT, REVIEW, CACHE_DIR, USER_HEADER, WEB
-    ap = argparse.ArgumentParser(description="Read-only YOLO dataset browser.")
+    ap = argparse.ArgumentParser(description="Pick: read-only YOLO dataset review.")
     ap.add_argument("root", help="directory holding dataset version folders")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8800)
@@ -1261,7 +1261,7 @@ def main():
     except OSError:
         pass
 
-    CACHE_DIR = Path(a.cache or (Path.home() / ".cache" / "dataset-browser"))
+    CACHE_DIR = Path(a.cache or (Path.home() / ".cache" / "pick"))
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
     except OSError:

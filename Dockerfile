@@ -18,13 +18,13 @@ RUN pip install --no-cache-dir Pillow==11.3.0
 #   docker compose build --build-arg DVC_GID=$(getent group dvc | cut -d: -f3)
 ARG DVC_GID=1500
 RUN groupadd -g "${DVC_GID}" dvc \
-    && useradd --system --uid 1500 --gid dvc --no-create-home browser \
-    && mkdir -p /var/cache/thumbs && chown browser:dvc /var/cache/thumbs
+    && useradd --system --uid 1500 --gid dvc --no-create-home pick \
+    && mkdir -p /var/cache/thumbs && chown pick:dvc /var/cache/thumbs
 
-COPY dataset_browser.py /app/dataset_browser.py
+COPY pick.py /app/pick.py
 COPY --from=ui /ui/dist /app/web/dist
 
-USER browser
+USER pick
 ENV HOME=/var/cache PYTHONUNBUFFERED=1
 EXPOSE 8800
 
@@ -32,7 +32,7 @@ HEALTHCHECK --interval=30s --timeout=4s --start-period=5s --retries=3 \
     CMD python3 -c "import urllib.request,sys; \
     sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8800/api/versions',timeout=3).status==200 else 1)"
 
-ENTRYPOINT ["python3", "/app/dataset_browser.py", "/data/datasets", \
+ENTRYPOINT ["python3", "/app/pick.py", "/data/datasets", \
     "--review", "/data/review", "--cache", "/var/cache/thumbs", \
     "--web", "/app/web/dist", \
     "--host", "0.0.0.0", "--port", "8800"]

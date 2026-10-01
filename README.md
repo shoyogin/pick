@@ -1,4 +1,4 @@
-# Dataset browser
+# Pick
 
 Review UI for YOLO dataset versions on a mounted disk.
 
@@ -10,13 +10,13 @@ Review UI for YOLO dataset versions on a mounted disk.
 | **Stats** | Image / class / box counts and how the classes are distributed |
 
 React + Vite + Tailwind in [`web/`](web/), served by a stdlib-only Python server
-([`dataset_browser.py`](dataset_browser.py)) that also exposes the API.
+([`pick.py`](pick.py)) that also exposes the API.
 
 ## Running it
 
 ```bash
 cd web && npm install && npm run build && cd ..     # once
-python3 dataset_browser.py /path/to/datasets \
+python3 pick.py /path/to/datasets \
   --review /path/to/review --host 127.0.0.1 --port 8800
 ```
 
@@ -26,7 +26,7 @@ Working on the UI? Run Vite instead of rebuilding each time — it proxies to th
 Python server, so keep both up:
 
 ```bash
-python3 dataset_browser.py /path/to/datasets --review /path/to/review --port 8800
+python3 pick.py /path/to/datasets --review /path/to/review --port 8800
 cd web && npm run dev            # http://localhost:5173
 ```
 
@@ -190,7 +190,7 @@ corrected dataset exists only in the file you download.
 
 *Download reviewed dataset* streams the version as a zip with the corrected
 labels in place of the originals, and with every image marked not OK, Review or
-Deleted — and its label file — left out. Two receipts travel inside:
+Deleted — and its label file — left out. Two records travel inside:
 `EXCLUDED.csv` for what was held back and why, and `CORRECTED.csv` for which
 labels were redrawn and by whom. The dataset itself is untouched.
 
@@ -214,7 +214,7 @@ client-sent name is ignored.
 
 If names ever stop arriving, the UI says so in a red bar across the Review page
 and the server prints the same warning once to its log — `docker compose logs
-browser`. Work is never lost when this happens, only unattributed, and the
+pick`. Work is never lost when this happens, only unattributed, and the
 orphaned entries can be cleaned up by anyone once identity is flowing again.
 
 Two untracked files hold everything host-specific, so nothing here is ever
@@ -258,7 +258,7 @@ Mounts: `/srv/data/datasets` → `/data/datasets` **ro**, `/srv/data/review` →
 > replace, so there is nothing to guard against.
 
 If names stop arriving, the Review page says so in a red bar and the server
-prints the same warning once to `docker compose logs browser`. Nothing is lost
+prints the same warning once to `docker compose logs pick`. Nothing is lost
 when that happens, only unattributed, and anyone can clean up the orphans.
 
 ## API

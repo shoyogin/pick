@@ -1,6 +1,6 @@
 # Plain HTTP is fine on VPN-only access. For HTTPS with an internal CA later:
 #
-# dataset-browser.internal {
+# pick.internal {
 #     tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
 #     # …same handlers as below…
 # }
@@ -26,7 +26,7 @@
         {$REVIEWER_5}
     }
 
-    reverse_proxy browser:8800 {
+    reverse_proxy pick:8800 {
         # Identity from basic_auth; header_up replaces whatever the client sent.
         header_up X-Remote-User {http.auth.user.id}
 

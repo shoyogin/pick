@@ -7,7 +7,7 @@ from urllib.error import HTTPError
 
 import pytest
 
-import dataset_browser as m
+import pick as m
 
 
 class Sink(io.RawIOBase):
