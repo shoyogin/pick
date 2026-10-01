@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import Cherry from './components/Cherry'
 import ThemeToggle from './components/ThemeToggle'
 import { DataProvider, useData } from './lib/store'
 import Files from './pages/Files'
@@ -60,7 +61,11 @@ function Shell() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-line bg-surface px-5 py-3">
-        <span className="font-semibold tracking-tight text-cherry">Pick</span>
+        <span className="flex min-w-0 items-center gap-1">
+          <Cherry />
+          <span className="mr-1.5 font-semibold tracking-tight text-cherry">Pick</span>
+          <span className="truncate text-sm text-muted">Every box, hand-picked.</span>
+        </span>
         <nav className="flex gap-1">
           {tabs.map((t) => (
             <NavLink
@@ -103,6 +108,14 @@ function Shell() {
           </Routes>
         )}
       </main>
+
+      <footer className="flex flex-wrap justify-center gap-x-1.5 gap-y-1 border-t border-line bg-surface px-5 py-2 text-xs text-muted">
+        <span>Authored by Ginevra Cerri</span>
+        <span aria-hidden="true">·</span>
+        <a href="https://github.com/shoyogin" className="text-ink2 underline underline-offset-2">
+          github.com/shoyogin
+        </a>
+      </footer>
     </div>
   )
 }
