@@ -328,32 +328,66 @@ def scan(version: str, split: str):
     return items
 
 
-def stats_for(version: str):
+def item_filter(mode="all", cls="", clsmode="any"):
+    """The Review filters as one predicate on a merged item, so the grid and the
+    filtered Stats count exactly the same images.
+
+    cls is one index or a comma list ("3", "0,2,5"); clsmode=any keeps images
+    holding at least one of them, clsmode=all only images holding every one."""
+    want = {int(c) for c in cls.split(",") if c.strip()}
+    need_all = clsmode == "all"
+
+    def keep(i):
+        flag = i["flag"] or {}
+        if mode == "unlabeled" and i["labeled"]:
+            return False
+        if mode == "empty" and not (i["labeled"] and not i["boxes"]):
+            return False
+        if mode == "unreviewed" and flag.get("status"):
+            return False
+        if mode == "commented" and not flag.get("comments"):
+            return False
+        if mode in STATUSES and flag.get("status") != mode:
+            return False
+        if want:
+            have = {b[0] for b in i["boxes"]}
+            return want <= have if need_all else bool(want & have)
+        return True
+    return keep
+
+
+def stats_for(version: str, keep=None):
+    """Counts for a version, or for the images keep() accepts. The class list
+    always comes from the whole version, so a filter never renumbers it."""
     classes, class_source = read_classes(version)
     splits, total, unlabeled, empty, counts = {}, 0, 0, 0, {}
-    split_counts = {}
+    split_counts, review, every = {}, {}, set()
     for sp in list_splits(version):
-        items = scan(version, sp)
         # Count what the version would export, not what is on disk.
         flags = load_flags(version, sp)
-        splits[sp] = len(items)
-        total += len(items)
-        per = {}
-        for it in items:
-            entry = flags.get(it["name"])
-            boxes = merged_boxes(it, entry)
-            fixed = entry is not None and entry["boxes"] is not None
-            if not it["labeled"] and not fixed:
+        n, per = 0, {}
+        for raw in scan(version, sp):
+            it = merged_item(raw, flags.get(raw["name"]))
+            every.update(b[0] for b in it["boxes"])
+            if keep and not keep(it):
+                continue
+            n += 1
+            if not it["labeled"]:
                 unlabeled += 1
-            elif not boxes:
+            elif not it["boxes"]:
                 empty += 1
-            for b in boxes:
+            for b in it["boxes"]:
                 counts[b[0]] = counts.get(b[0], 0) + 1
                 per[b[0]] = per.get(b[0], 0) + 1
+            st = (it["flag"] or {}).get("status")
+            if st:
+                review[st] = review.get(st, 0) + 1
+        splits[sp] = n
+        total += n
         split_counts[sp] = per
     # A label file can reference an index the name file never mentions. Pad
     # rather than drop it, so a stray class still shows up and stays filterable.
-    ncls = max([len(classes)] + [k + 1 for k in counts]) if (classes or counts) else 0
+    ncls = max([len(classes)] + [k + 1 for k in every]) if (classes or every) else 0
     names = list(classes) + [str(i) for i in range(len(classes), ncls)]
     return {
         "version": version,
@@ -365,6 +399,7 @@ def stats_for(version: str):
         "empty": empty,
         "class_counts": counts,
         "split_class_counts": split_counts,
+        "review": review,
     }
 
 
@@ -489,8 +524,9 @@ def load_flags(version: str, split: str):
 
 
 def thread(entry):
-    """An image's comments, oldest first."""
-    return sorted(entry["comments"].values(), key=lambda c: (c["ts"], c["id"]))
+    """An image's comments, oldest first. Two can share a millisecond; the sort
+    is stable, so a tie keeps log order rather than falling to the random id."""
+    return sorted(entry["comments"].values(), key=lambda c: c["ts"])
 
 
 def flag_view(entry):
@@ -1004,37 +1040,18 @@ class Handler(BaseHTTPRequestHandler):
                                    "pillow": HAVE_PIL})
             if u.path == "/api/version":
                 return self._json(stats_for(q["v"]))
+            if u.path == "/api/stats":
+                # Stats for the images the Review filters select, every split.
+                return self._json(stats_for(q["v"], item_filter(
+                    q.get("mode", "all"), q.get("cls", ""), q.get("clsmode", "any"))))
             if u.path == "/api/items":
                 sp = q.get("split", ".")
                 flags = load_flags(q["v"], sp)
                 items = [merged_item(i, flags.get(i["name"]))
                          for i in scan(q["v"], sp)]
-                cls = q.get("cls", "")
-                mode = q.get("mode", "all")
-                if mode == "unlabeled":
-                    items = [i for i in items if not i["labeled"]]
-                elif mode == "empty":
-                    items = [i for i in items if i["labeled"] and not i["boxes"]]
-                elif mode == "unreviewed":
-                    items = [i for i in items
-                             if not (i["flag"] and i["flag"]["status"])]
-                elif mode == "commented":
-                    items = [i for i in items if i["flag"] and i["flag"]["comments"]]
-                elif mode in STATUSES:
-                    items = [i for i in items
-                             if i["flag"] and i["flag"]["status"] == mode]
-                if cls.strip():
-                    # cls accepts one index or a comma list: "3" or "0,2,5".
-                    # clsmode=any (default) keeps images holding at least one of
-                    # them; clsmode=all keeps only images holding every one.
-                    want = {int(c) for c in cls.split(",") if c.strip()}
-                    need_all = q.get("clsmode") == "all"
-
-                    def keep(i, want=want, need_all=need_all):
-                        have = {b[0] for b in i["boxes"]}
-                        return want <= have if need_all else bool(want & have)
-
-                    items = [i for i in items if keep(i)]
+                keep = item_filter(q.get("mode", "all"), q.get("cls", ""),
+                                   q.get("clsmode", "any"))
+                items = [i for i in items if keep(i)]
                 off = int(q.get("offset", 0))
                 lim = min(int(q.get("limit", 120)), 500)
                 return self._json({"total": len(items), "offset": off,

@@ -10,30 +10,18 @@ import {
 } from '../lib/api'
 import { classColor } from '../lib/colors'
 import { bytes, nf, splitLabel, when } from '../lib/format'
+import { SHOW } from '../lib/filters'
 import { useData } from '../lib/store'
 
-const SHOW = [
-  ['all', 'All images'],
-  ['unreviewed', 'Not reviewed yet'],
-  ['ok', 'Marked OK'],
-  ['no', 'Marked not OK'],
-  ['review', 'Corrected, waiting to be accepted'],
-  ['deleted', 'Deleted'],
-  ['commented', 'Has comments'],
-  ['unlabeled', 'Missing label file'],
-  ['empty', 'Label file, no boxes'],
-]
 const PAGE = 120
 
 export default function Review() {
-  const { version, stats, meta, classPrefs: prefs, who, nameSelf } = useData()
+  const { version, stats, meta, classPrefs: prefs, who, nameSelf, filters } = useData()
+  const { mode, setMode, cls, setCls, toggleClass, matchAll, setMatchAll, query } = filters
   const classes = stats?.classes ?? []
   useBoxesShortcut(prefs.toggleAll)
 
   const [split, setSplit] = useState('')
-  const [mode, setMode] = useState('all')
-  const [cls, setCls] = useState(() => new Set())
-  const [matchAll, setMatchAll] = useState(false)
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [busy, setBusy] = useState(true)
@@ -47,22 +35,19 @@ export default function Review() {
     setSplit((s) => (splits.includes(s) ? s : splits.includes('train') ? 'train' : splits[0]))
   }, [splits])
 
-  useEffect(() => { setCls(new Set()) }, [version])
-
   const load = useCallback(async (offset = 0) => {
     if (!version || !split) return
     setBusy(true)
     try {
       const d = await getItems({
-        v: version, split, mode, cls: [...cls].join(','),
-        clsmode: matchAll ? 'all' : 'any', offset, limit: PAGE,
+        v: version, split, ...query, offset, limit: PAGE,
       })
       setTotal(d.total)
       setItems((prev) => (offset ? [...prev, ...d.items] : d.items))
     } finally {
       setBusy(false)
     }
-  }, [version, split, mode, cls, matchAll])
+  }, [version, split, query])
 
   useEffect(() => { load(0) }, [load])
 
@@ -70,12 +55,6 @@ export default function Review() {
     if (version) getSummary(version).then(setSummary).catch(() => { })
   }, [version])
   useEffect(reloadSummary, [reloadSummary])
-
-  const toggleClass = (i) => setCls((prev) => {
-    const next = new Set(prev)
-    next.has(i) ? next.delete(i) : next.add(i)
-    return next
-  })
 
   // A verdict updates the one card in place — re-fetching the page would make
   // the image you just judged jump out from under the cursor.
