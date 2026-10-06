@@ -230,3 +230,12 @@ def test_stats_follow_the_review_filters(server, db):
     _, waiting = call(server, "/api/stats?v=v1&mode=review")
     _, grid = call(server, "/api/items?v=v1&split=train&mode=review")
     assert waiting["total"] == grid["total"] == 1
+
+
+def test_comments_in_the_same_millisecond_keep_their_order(db, monkeypatch):
+    monkeypatch.setattr(db, "now_iso", lambda: "2026-01-01T00:00:00.000+00:00")
+    for i in range(20):
+        db.append_comment("v1", "train", "a.jpg", f"c{i}", "alice")
+    db._flags.clear()
+    thread = db.thread(db.load_flags("v1", "train")["a.jpg"])
+    assert [c["text"] for c in thread] == [f"c{i}" for i in range(20)]

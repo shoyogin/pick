@@ -524,8 +524,9 @@ def load_flags(version: str, split: str):
 
 
 def thread(entry):
-    """An image's comments, oldest first."""
-    return sorted(entry["comments"].values(), key=lambda c: (c["ts"], c["id"]))
+    """An image's comments, oldest first. Two can share a millisecond; the sort
+    is stable, so a tie keeps log order rather than falling to the random id."""
+    return sorted(entry["comments"].values(), key=lambda c: c["ts"])
 
 
 def flag_view(entry):
