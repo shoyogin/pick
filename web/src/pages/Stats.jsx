@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import Donut from '../components/Donut'
-import { getSummary } from '../lib/api'
+import { getStats } from '../lib/api'
 import { GREY, classColor, paletteColor } from '../lib/colors'
+import { SHOW } from '../lib/filters'
 import { nf, pct, splitLabel } from '../lib/format'
 import { useData } from '../lib/store'
 
 export default function Stats() {
-  const { version, stats } = useData()
-  const [summary, setSummary] = useState({})
+  const { version, stats: whole, filters } = useData()
+  const { query, active } = filters
+  // The counts for whatever the shared filters select. Refetched when the
+  // version's own stats change too, so Rescan disk reaches this page.
+  const [stats, setStats] = useState(null)
 
   useEffect(() => {
-    if (version) getSummary(version).then(setSummary).catch(() => {})
-  }, [version])
+    if (!version || !whole) return
+    let stale = false
+    getStats(version, query).then((s) => !stale && setStats(s)).catch(() => {})
+    return () => { stale = true }
+  }, [version, whole, query])
 
   const rows = useMemo(() => {
     if (!stats) return []
@@ -22,6 +29,7 @@ export default function Stats() {
 
   if (!stats) return <p className="p-8 text-sm text-muted">Loading…</p>
 
+  const summary = stats.review
   const boxes = rows.reduce((a, r) => a + r.value, 0)
   const withBoxes = stats.total - stats.unlabeled - stats.empty
   const reviewed = (summary.ok || 0) + (summary.no || 0) + (summary.review || 0)
@@ -29,6 +37,7 @@ export default function Stats() {
   const unused = rows.filter((r) => r.value === 0).length
   const used = rows.filter((r) => r.value > 0)
   const ratio = used.length ? used[0].value / used[used.length - 1].value : 0
+  const scope = active ? 'the filtered images' : version
 
   const balance = !boxes ? { tone: GREY, text: 'No boxes yet' }
     : unused ? { tone: 'var(--color-no)', text: `${unused} class${unused > 1 ? 'es' : ''} unused` }
@@ -39,9 +48,12 @@ export default function Stats() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-5xl px-6 py-6">
+        <FilterBar classes={stats.classes} filters={filters} />
+
         <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Tile label="Images" value={nf(stats.total)}
-                sub={`${nf(stats.unlabeled)} with no label file`} />
+                sub={active ? `of ${nf(whole.total)} in ${version}`
+                  : `${nf(stats.unlabeled)} with no label file`} />
           <Tile label="Classes" value={nf(stats.classes.length)}
                 sub={unused ? `${nf(unused)} with no boxes` : 'all in use'} />
           <Tile label="Boxes" value={nf(boxes)}
@@ -53,7 +65,7 @@ export default function Stats() {
         <div className="mb-5 flex items-center gap-3 rounded-lg border border-line bg-card px-5 py-3">
           <span className="size-3 shrink-0 rounded-full" style={{ background: balance.tone }} />
           <div>
-            <div className="text-sm font-semibold">Class balance — {version}</div>
+            <div className="text-sm font-semibold">Class balance — {scope}</div>
             <div className="text-xs text-muted">{balance.text}</div>
           </div>
         </div>
@@ -61,7 +73,7 @@ export default function Stats() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Donut
             title="Share of every box"
-            caption={`All ${nf(boxes)} boxes across every split of ${version}.`}
+            caption={`All ${nf(boxes)} boxes in ${scope}, across every split.`}
             centerLabel="boxes"
             data={rows.map((r) => ({
               key: r.i, label: r.name, value: r.value, color: classColor(r.i),
@@ -159,3 +171,63 @@ const Tile = ({ label, value, sub }) => (
     <div className="mt-0.5 text-[11px] text-muted">{sub}</div>
   </div>
 )
+
+/** The shared Review filters, readable and editable here. Clearing them puts
+ *  the whole version back — on this page and on Review. */
+function FilterBar({ classes, filters }) {
+  const { mode, setMode, cls, toggleClass, matchAll, setMatchAll, clear, active } = filters
+  const free = classes.map((name, i) => [i, name]).filter(([i]) => !cls.has(i))
+
+  return (
+    <div className={`mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border px-4 py-2.5 text-sm ${
+      active ? 'border-ink bg-card' : 'border-line bg-surface'}`}>
+      <span className="text-xs font-medium text-ink2">Showing</span>
+      <select
+        value={mode} onChange={(e) => setMode(e.target.value)}
+        className="rounded-md border border-rule bg-card px-2 py-1 text-sm"
+      >
+        {SHOW.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+
+      <span className="text-xs font-medium text-ink2">with</span>
+      {[...cls].sort((a, b) => a - b).map((i) => (
+        <button
+          key={i} onClick={() => toggleClass(i)} title="Remove this class from the filter"
+          className="flex items-center gap-1.5 rounded-full border border-rule bg-card py-0.5 pr-1.5 pl-2 text-xs hover:bg-hover"
+        >
+          <span className="size-2.5 rounded-[2px]" style={{ background: classColor(i) }} />
+          {classes[i] ?? i}
+          <span aria-hidden="true" className="text-muted">×</span>
+        </button>
+      ))}
+      {cls.size > 1 && (
+        <button
+          onClick={() => setMatchAll((v) => !v)}
+          title="Any: the image has at least one of these classes. All: it has every one."
+          className={`rounded-full border px-2 py-0.5 text-[11px] ${matchAll ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2'}`}
+        >
+          {matchAll ? 'all of them' : 'any of them'}
+        </button>
+      )}
+      {free.length > 0 && (
+        <select
+          value="" onChange={(e) => e.target.value !== '' && toggleClass(Number(e.target.value))}
+          aria-label="Add a class to the filter"
+          className="rounded-md border border-dashed border-rule bg-card px-2 py-1 text-xs text-ink2"
+        >
+          <option value="">{cls.size ? '+ class' : 'any class'}</option>
+          {free.map(([i, name]) => <option key={i} value={i}>{name}</option>)}
+        </select>
+      )}
+
+      <span className="flex-1" />
+      <span className="text-xs text-muted">every split · shared with Review</span>
+      <button
+        onClick={clear} disabled={!active}
+        className="rounded-md bg-ink px-3 py-1 text-xs font-semibold text-page hover:opacity-90 disabled:bg-transparent disabled:font-normal disabled:text-muted"
+      >
+        {active ? 'Clear filters' : 'No filters'}
+      </button>
+    </div>
+  )
+}

@@ -209,3 +209,24 @@ def test_http_refuses_paths_out_of_the_root(server):
     assert call(server, "/api/version?v=../../etc")[0] == 403
     assert call(server, "/api/flag", {"v": "../..", "split": "train",
                                       "image": "a.jpg", "status": "no"})[0] in (403, 404)
+
+
+def test_stats_follow_the_review_filters(server, db):
+    # Every v1 image holds a car and a person; b is redrawn as a lone tent.
+    db.append_flag("v1", "train", "b.jpg", "no", "carol")
+    db.append_labels("v1", "train", "b.jpg", [[2, 0.5, 0.5, 0.2, 0.2]], "alice")
+
+    _, full = call(server, "/api/stats?v=v1")
+    assert full["total"] == 4 and full["class_counts"] == {"0": 3, "1": 3, "2": 1}
+
+    _, tents = call(server, "/api/stats?v=v1&cls=2")
+    assert tents["total"] == 1 and tents["class_counts"] == {"2": 1}
+    assert tents["classes"] == ["car", "person", "tent"]       # never renumbered
+    assert tents["review"] == {"review": 1}
+
+    _, both = call(server, "/api/stats?v=v1&cls=0,2&clsmode=all")
+    assert both["total"] == 0 and both["splits"] == {"train": 0}
+
+    _, waiting = call(server, "/api/stats?v=v1&mode=review")
+    _, grid = call(server, "/api/items?v=v1&split=train&mode=review")
+    assert waiting["total"] == grid["total"] == 1

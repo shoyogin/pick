@@ -12,6 +12,8 @@ const qs = (params) => new URLSearchParams(params).toString()
 
 export const getVersions = () => json('/api/versions')
 export const getVersion = (v) => json('/api/version?' + qs({ v }))
+/** Stats for the images the shared filters select ({mode, cls, clsmode}). */
+export const getStats = (v, filter) => json('/api/stats?' + qs({ v, ...filter }))
 export const getItems = (params) => json('/api/items?' + qs(params))
 export const getMeta = () => json('/api/review/meta')
 export const getSummary = (v) => json('/api/review/summary?' + qs({ v }))

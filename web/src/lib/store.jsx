@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { getMeta, getVersion, getVersions, refresh } from './api'
 import { useClassPrefs } from './classPrefs'
+import { useFilters } from './filters'
 
 const Ctx = createContext(null)
 const EMPTY = []   // stable identity: the prefs hook keys effects off it
@@ -44,6 +45,9 @@ export function DataProvider({ children }) {
   // once per page.
   const classPrefs = useClassPrefs(stats?.classes ?? EMPTY)
 
+  // Held here, not in Review, so Stats counts the same subset the grid shows.
+  const filters = useFilters(version)
+
   // A proxy-supplied name always wins over the self-declared one.
   useEffect(() => { if (meta?.user) setWho(meta.user) }, [meta])
   const nameSelf = useCallback((v) => {
@@ -58,7 +62,7 @@ export function DataProvider({ children }) {
 
   return (
     <Ctx.Provider value={{ versions, version, setVersion, stats, setStats, meta,
-                           root, error, loading, rescan, classPrefs,
+                           root, error, loading, rescan, classPrefs, filters,
                            who, nameSelf }}>
       {children}
     </Ctx.Provider>
