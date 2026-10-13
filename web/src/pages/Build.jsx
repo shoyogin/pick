@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
 import {
   buildZipUrl, getBuildCounts, getBuildHistory, getVersion, imgUrl, runBuild,
@@ -69,21 +69,24 @@ export default function Build() {
 
   const set = (patch) => setParams((p) => ({ ...p, ...patch }))
 
-  // One request per version, so each count shows as soon as its scan is done.
+  // Fetched for a version the first time it is ticked; only the total shows.
+  const asked = useRef(new Set())
   useEffect(() => {
-    let stale = false
-    for (const v of all) {
+    for (const v of params.versions) {
+      if (asked.current.has(v)) continue
+      asked.current.add(v)
       getBuildCounts(v)
-        .then((c) => !stale && setCounts((m) => ({ ...m, [v]: c })))
-        .catch(() => {})
+        .then((c) => setCounts((m) => ({ ...m, [v]: c })))
+        .catch(() => asked.current.delete(v))
     }
-    return () => { stale = true }
-  }, [all])
+  }, [params.versions])
 
   // Known only once every ticked version has its count.
   const eligible = params.versions.every((v) => counts[v])
     ? params.versions.reduce((a, v) => a + counts[v].eligible, 0) : null
   const problems = validate(params, eligible)
+  const held = eligible == null ? 0
+    : params.versions.reduce((a, v) => a + counts[v].total - counts[v].eligible, 0)
 
   // Class names come from the first version; the server refuses a mix.
   const first = params.versions[0]
@@ -128,7 +131,7 @@ export default function Build() {
     <div className="flex h-full">
       <Options
         all={all} params={params} set={set} classes={classes}
-        counts={counts} eligible={eligible} problems={problems}
+        eligible={eligible} held={held} problems={problems}
         busy={busy} fresh={fresh} error={error} onPreview={preview}
         zip={buildZipUrl(request)} onDownload={() => setTimeout(loadHistory, 1500)}
       />
@@ -161,7 +164,7 @@ export default function Build() {
 
 // ---------------------------------------------------------------- options
 
-function Options({ all, params, set, classes, counts, eligible, problems, busy, fresh, error, onPreview, zip, onDownload }) {
+function Options({ all, params, set, classes, eligible, held, problems, busy, fresh, error, onPreview, zip, onDownload }) {
   const toggleVersion = (v) => set({
     versions: params.versions.includes(v)
       ? params.versions.filter((x) => x !== v) : [...params.versions, v],
@@ -173,11 +176,12 @@ function Options({ all, params, set, classes, counts, eligible, problems, busy, 
   }
 
   return (
-    <aside className="w-72 shrink-0 overflow-y-auto border-r border-line bg-surface p-4 text-sm">
+    <Resizable>
+    <aside className="h-full overflow-y-auto border-r border-line bg-surface p-4 text-sm">
       <Group
         label="Versions"
         hint={params.versions.length
-          ? `${eligible == null ? '…' : nf(eligible)} eligible images in ${params.versions.length} version${params.versions.length === 1 ? '' : 's'} · must share one class list`
+          ? `${eligible == null ? '…' : nf(eligible)} eligible images in ${params.versions.length} version${params.versions.length === 1 ? '' : 's'}${held ? ` (${nf(held)} held back by review)` : ''} · must share one class list`
           : 'tick at least one · must share one class list'}
       >
         {/* Tall enough for a grouped disk; drag the corner for more. */}
@@ -189,8 +193,7 @@ function Options({ all, params, set, classes, counts, eligible, problems, busy, 
                 <label key={value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover">
                   <input type="checkbox" className="size-4 accent-brand"
                          checked={params.versions.includes(value)} onChange={() => toggleVersion(value)} />
-                  <span className="flex-1">{label}</span>
-                  <VersionCount c={counts[value]} />
+                  {label}
                 </label>
               ))}
             </div>
@@ -299,18 +302,50 @@ function Options({ all, params, set, classes, counts, eligible, problems, busy, 
         {error && <p className="text-[11px] text-no">{error}</p>}
       </div>
     </aside>
+    </Resizable>
   )
 }
 
-/** Eligible of total, with what review held back in the tooltip. */
-function VersionCount({ c }) {
-  if (!c) return <span className="text-[11px] text-muted">…</span>
-  const held = Object.entries(c.excluded).map(([why, n]) => `${nf(n)} ${why}`).join('\n')
+const SIDE = { min: 240, max: 640, initial: 288, key: 'build-sidebar' }
+
+/** The sidebar, widened or narrowed by dragging its right edge. The width is a
+ *  per-browser convenience, so storage failing just means the default. */
+function Resizable({ children }) {
+  const [width, setWidth] = useState(() => {
+    try { return Number(localStorage.getItem(SIDE.key)) || SIDE.initial } catch { return SIDE.initial }
+  })
+  const drag = useRef(null)
+
+  const down = (e) => {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drag.current = { x: e.clientX, w: width }
+  }
+  const move = (e) => {
+    if (!drag.current) return
+    const w = Math.min(SIDE.max, Math.max(SIDE.min, drag.current.w + e.clientX - drag.current.x))
+    setWidth(w)
+  }
+  const up = () => {
+    if (!drag.current) return
+    drag.current = null
+    try { localStorage.setItem(SIDE.key, String(width)) } catch { /* default next time */ }
+  }
+
   return (
-    <span className="num text-[11px] text-muted"
-          title={`${nf(c.eligible)} of ${nf(c.total)} images eligible${held ? '\n' + held : ''}`}>
-      {nf(c.eligible)}{c.eligible !== c.total && <span className="opacity-60"> / {nf(c.total)}</span>}
-    </span>
+    <div className="relative h-full shrink-0" style={{ width }}>
+      {children}
+      <div
+        role="separator" aria-orientation="vertical" aria-label="Resize the options panel"
+        title="Drag to resize · double-click to reset"
+        onPointerDown={down} onPointerMove={move} onPointerUp={up}
+        onDoubleClick={() => {
+          setWidth(SIDE.initial)
+          try { localStorage.removeItem(SIDE.key) } catch { /* nothing stored */ }
+        }}
+        className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-brand/30 active:bg-brand/50"
+      />
+    </div>
   )
 }
 
