@@ -37,6 +37,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+import builder
+
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 THUMB_MAX = 420
 ZIP_CHUNK = 512 * 1024
@@ -90,6 +92,7 @@ POST_MAX = {
     "/api/comment/delete": 64_000,
     "/api/labels": 512_000,
     "/api/labels/revert": 64_000,
+    "/api/build": 64_000,
 }
 
 
@@ -952,6 +955,224 @@ def download_plan(version):
 
 # ---------------------------------------------------------------- http layer
 
+# ---------------------------------------------------------------- build
+
+# Everything the Build tab can ask for, with the script's defaults.
+BUILD_DEFAULTS = {"num": 100, "empty": 10.0, "val": 0.0, "by": "instances",
+                  "repeats": 1, "dedup": True, "hamming": 16, "window": 12, "seed": 42}
+REVIEW_EXCLUDES = {"no": "marked Not OK", "deleted": "deleted",
+                   "review": "correction waiting for approval"}
+_build_log_lock = threading.Lock()
+
+
+def build_request(p: dict):
+    """(versions, classes, Options) from a request, refusing what the script would."""
+    versions = [v for v in p.get("versions") or [] if isinstance(v, str) and v]
+    if not versions:
+        raise ValueError("pick at least one version")
+    known = set(list_versions())
+    for v in versions:
+        if v not in known:
+            raise FileNotFoundError(f"unknown version {v}")
+    classes = read_classes(versions[0])[0] or stats_for(versions[0])["classes"]
+    for v in versions[1:]:
+        other = read_classes(v)[0] or stats_for(v)["classes"]
+        if other != classes:
+            raise ValueError(f"{v} has different classes from {versions[0]}; "
+                             "only versions sharing one class list can be combined")
+    o = {**BUILD_DEFAULTS, **{k: p[k] for k in BUILD_DEFAULTS if p.get(k) is not None}}
+    wanted = p.get("classes")
+    ids = list(range(len(classes))) if not wanted else sorted({int(c) for c in wanted})
+    if any(not 0 <= c < len(classes) for c in ids):
+        raise ValueError("unknown class")
+    if o["by"] not in ("instances", "images"):
+        raise ValueError("balance by instances or images")
+    opt = builder.Options(
+        num_images=int(o["num"]), classes=ids, empty_percent=float(o["empty"]),
+        val_fraction=float(o["val"]), by_instances=o["by"] == "instances",
+        max_repeats=int(o["repeats"]), dedup=bool(o["dedup"]),
+        hamming=int(o["hamming"]), window=int(o["window"]), seed=int(o["seed"]))
+    opt.check()
+    return versions, classes, opt
+
+
+def build_candidates(versions):
+    """Every image of the versions, with its corrected boxes. Not OK, Deleted and
+    unaccepted fixes are excluded; OK and never-reviewed images are eligible."""
+    cands, items = [], []
+    for v in versions:
+        for sp in list_splits(v):
+            flags = load_flags(v, sp)
+            lbl = Path(v) / "labels" / sp if sp != "." else Path(v) / "labels"
+            has_labels_dir = safe_under_root(lbl).is_dir()
+            for raw in scan(v, sp):
+                it = merged_item(raw, flags.get(raw["name"]))
+                status = (it["flag"] or {}).get("status", "")
+                why = REVIEW_EXCLUDES.get(status, "")
+                # Like the script: a labels/ folder with no .txt for the image is
+                # an empty image (X-AnyLabeling skips empty labels); no folder at
+                # all means nobody labelled it.
+                if not why and not it["labeled"] and not has_labels_dir:
+                    why = "no labels folder"
+                inst = {}
+                for b in it["boxes"]:
+                    inst[b[0]] = inst.get(b[0], 0) + 1
+                img = Path(v) / "images" / sp / it["name"] if sp != "." \
+                    else Path(v) / "images" / it["name"]
+                cands.append(builder.Candidate(
+                    key=f"{v}|{sp}|{it['name']}", folder=f"{v}/{sp}",
+                    stem=Path(it["name"]).stem, path=safe_under_root(img),
+                    instances=inst, excluded=why))
+                items.append({"v": v, "split": sp, "name": it["name"],
+                              "boxes": it["boxes"], "dim": it["dim"],
+                              "status": status,
+                              "corrected": bool(flags.get(raw["name"])
+                                                and flags[raw["name"]]["boxes"] is not None),
+                              "img": img})
+    return cands, items
+
+
+def run_build(p: dict):
+    versions, classes, opt = build_request(p)
+    cands, items = build_candidates(versions)
+    res = builder.build(cands, opt)
+    return versions, classes, opt, cands, items, res
+
+
+def build_params(versions, opt):
+    """The request that reproduces a build — what history stores and restores."""
+    return {"versions": versions, "classes": opt.classes, "num": opt.num_images,
+            "empty": opt.empty_percent, "val": opt.val_fraction,
+            "by": "instances" if opt.by_instances else "images",
+            "repeats": opt.max_repeats, "dedup": opt.dedup,
+            "hamming": opt.hamming, "window": opt.window, "seed": opt.seed}
+
+
+def build_summary(res):
+    return {name: {"images": r["images"], "unique": r["unique_images"],
+                   "imbalance": r["imbalance"]}
+            for name, r in res.report.items() if name in ("train", "val", "test")}
+
+
+def log_build(kind, who, versions, opt, res):
+    """Append one run to builds.jsonl: seed, every option, the outcome."""
+    rec = {"id": uuid.uuid4().hex[:12], "kind": kind, "ts": now_iso(),
+           "reviewer": (who or "anon")[:64], "params": build_params(versions, opt),
+           "summary": build_summary(res)}
+    line = json.dumps(rec, separators=(",", ":")) + "\n"
+    with _build_log_lock:
+        fd = os.open(REVIEW / "builds.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o664)
+        try:
+            os.write(fd, line.encode())
+        finally:
+            os.close(fd)
+    return rec
+
+
+def build_history(limit=200):
+    """Newest first. A torn or foreign line is skipped, never fatal."""
+    f = REVIEW / "builds.jsonl"
+    out = []
+    try:
+        with open(f, encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(rec, dict) and "params" in rec:
+                    out.append(rec)
+    except OSError:
+        pass
+    return out[::-1][:limit]
+
+
+def build_view(classes, items, res, opt):
+    """What the Build tab draws: the report with names, and every image's fate."""
+    named = {}
+    for name, r in res.report.items():
+        if name in ("train", "val", "test"):
+            r = dict(r, classes=[dict(c, name=classes[c["id"]]) for c in r["classes"]],
+                     unrequested_in_selected={classes[k]: n for k, n in
+                                              r["unrequested_in_selected"].items()})
+        named[name] = r
+    if "val_share" in named:
+        named["val_share"] = {classes[k]: v for k, v in named["val_share"].items()}
+    return {
+        "classes": classes,
+        "balanced": opt.classes,
+        "report": named,
+        "items": [{"v": it["v"], "split": it["split"], "name": it["name"],
+                   "boxes": it["boxes"], "dim": it["dim"], "status": it["status"],
+                   "state": res.state[i], "reason": res.reason[i],
+                   "repeats": res.repeats[i]} for i, it in enumerate(items)],
+    }
+
+
+def build_zip_plan(versions, classes, opt, cands, items, res):
+    """[(arcname, source path | text)] plus the list files, data.yaml, manifest.
+
+    Images keep their origin in the path — images/train/<version>/<split>/x.jpg —
+    so two versions with the same file name cannot collide. Labels are the
+    corrected ones; an image with no label stays without, which Ultralytics
+    reads as background."""
+    files, lists, rows = [], {}, []
+    for i, it in enumerate(items):
+        n = res.repeats[i]
+        if not n:
+            continue
+        side = res.state[i]
+        sub = f"{side}/{it['v']}/{it['split']}" if it["split"] != "." else f"{side}/{it['v']}"
+        img_arc = f"images/{sub}/{it['name']}"
+        lbl_arc = f"labels/{sub}/{Path(it['name']).stem}.txt"
+        files.append((img_arc, cands[i].path))
+        if it["corrected"]:
+            files.append((lbl_arc, label_text(it["boxes"])))
+        else:
+            src = safe_under_root(Path(label_file(it["v"], it["split"], it["name"])))
+            if src.is_file():
+                files.append((lbl_arc, src))
+        lists.setdefault(side, []).extend([f"./{img_arc}"] * n)
+        rows.append({"split": side, "image": img_arc, "source": str(it["img"]),
+                     "repeats": n, "corrected": it["corrected"],
+                     "empty": not cands[i].instances})
+    texts = {f"{side}.txt": "".join(f"{p}\n" for p in sorted(paths))
+             for side, paths in lists.items()}
+    if opt.val_fraction:
+        names = "".join(f"  {i}: '{n}'\n" for i, n in enumerate(classes))
+        texts["data.yaml"] = (f"# built by Pick, seed {opt.seed}\n"
+                              f"train: train.txt\nval: val.txt\nnc: {len(classes)}\n"
+                              f"names:\n{names}")
+    manifest = {"built": now_iso(), **build_params(versions, opt),
+                "class_names": classes,
+                "balanced_classes": [classes[c] for c in opt.classes],
+                "report": build_view(classes, items, res, opt)["report"],
+                "images": rows}
+    texts["manifest.json"] = json.dumps(manifest, indent=2) + "\n"
+    return files, texts
+
+
+def zip_build(writer, arc_root, files, texts):
+    with zipfile.ZipFile(writer, "w", allowZip64=True) as z:
+        for arc, src in files:
+            name = f"{arc_root}/{arc}"
+            if isinstance(src, str):
+                z.writestr(name, src, zipfile.ZIP_DEFLATED)
+                continue
+            info = zipfile.ZipInfo.from_file(src, name)
+            info.compress_type = (zipfile.ZIP_STORED if src.suffix.lower() in IMAGE_EXT
+                                  else zipfile.ZIP_DEFLATED)
+            try:
+                with z.open(info, "w") as dst, open(src, "rb") as fh:
+                    while buf := fh.read(ZIP_CHUNK):
+                        dst.write(buf)
+            except OSError:
+                continue
+        for name, text in texts.items():
+            z.writestr(f"{arc_root}/{name}", text, zipfile.ZIP_DEFLATED)
+
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Pick/2.0"
     protocol_version = "HTTP/1.1"     # required for chunked download streaming
@@ -1025,6 +1246,25 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             self.close_connection = True      # reader walked away mid-download
 
+    def _build_download(self, p):
+        versions, classes, opt, cands, items, res = run_build(p)
+        log_build("download", self._who(p.get("reviewer", "")), versions, opt, res)
+        files, texts = build_zip_plan(versions, classes, opt, cands, items, res)
+        name = f"pick-{opt.num_images}-seed{opt.seed}"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", f'attachment; filename="{name}.zip"')
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        if self.command == "HEAD":
+            return
+        w = ChunkedWriter(self.wfile)
+        try:
+            zip_build(w, name, files, texts)
+            w.close()
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+
     # ---- GET -------------------------------------------------------------
 
     def do_GET(self):
@@ -1032,7 +1272,7 @@ class Handler(BaseHTTPRequestHandler):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         try:
             if not u.path.startswith("/api/") and \
-                    u.path not in ("/img", "/download", "/file"):
+                    u.path not in ("/img", "/download", "/file", "/build.zip"):
                 return self._static(u.path)
 
             if u.path == "/api/versions":
@@ -1112,6 +1352,10 @@ class Handler(BaseHTTPRequestHandler):
                 with _flag_lock:
                     _flags.clear()
                 return self._json({"ok": True})
+            if u.path == "/api/build/history":
+                return self._json({"history": build_history()})
+            if u.path == "/build.zip":
+                return self._build_download(json.loads(q["p"]))
             if u.path == "/api/tree":
                 return self._json(tree(rel_path(q.get("path", ""))))
             if u.path == "/download":
@@ -1177,6 +1421,13 @@ class Handler(BaseHTTPRequestHandler):
                 who = UNOWNED
         return body["v"], body["split"], body["image"], who
 
+    def _who(self, declared=""):
+        """The author of a request that names no image: the proxy's user when
+        there is one, else whatever the client calls itself."""
+        if USER_HEADER:
+            return self.headers.get(USER_HEADER) or UNOWNED
+        return declared if isinstance(declared, str) else ""
+
     def _warn_no_identity(self):
         """Once, loudly: otherwise this is silent and everything is still
         saved, just filed under nobody."""
@@ -1206,6 +1457,10 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):
                 return self._json({"error": "body must be a JSON object"}, 400)
+            if u.path == "/api/build":
+                versions, classes, opt, cands, items, res = run_build(body)
+                rec = log_build("preview", self._who(body.get("reviewer", "")), versions, opt, res)
+                return self._json({**build_view(classes, items, res, opt), "run": rec})
             v, sp, img, who = self._target(body)
 
             if u.path == "/api/flag":
