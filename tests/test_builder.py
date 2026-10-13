@@ -120,3 +120,17 @@ def test_build_over_http_uses_review_and_logs_history(server, db):
 def test_versions_with_different_classes_are_refused(server):
     status, body = call(server, "/api/build", {"versions": ["v1", "online/t0"], "num": 2})
     assert status == 400 and "different classes" in body["error"]
+
+
+def test_counts_leave_out_review_exclusions_and_cap_the_build(server, db):
+    db.append_flag("v1", "train", "a.jpg", "no", "carol")
+    db.append_flag("v1", "train", "b.jpg", "deleted", "carol")
+    status, counts = call(server, "/api/build/counts?v=v1")
+    assert status == 200
+    assert counts["total"] == 4 and counts["eligible"] == 2
+    assert counts["excluded"] == {"marked Not OK": 1, "deleted": 1}
+
+    status, body = call(server, "/api/build", {"versions": ["v1"], "num": 3, "dedup": False})
+    assert status == 400 and "only 2 are eligible" in body["error"]
+    assert call(server, "/api/build", {"versions": ["v1"], "num": 2, "empty": 0,
+                                       "dedup": False})[0] == 200

@@ -1032,9 +1032,26 @@ def build_candidates(versions):
     return cands, items
 
 
+def build_counts(version):
+    """How many images of a version a build may draw from, and why the rest
+    may not — the numbers next to each version in the Build tab."""
+    cands, _ = build_candidates([version])
+    out = {"total": len(cands), "eligible": 0, "excluded": {}}
+    for c in cands:
+        if c.excluded:
+            out["excluded"][c.excluded] = out["excluded"].get(c.excluded, 0) + 1
+        else:
+            out["eligible"] += 1
+    return out
+
+
 def run_build(p: dict):
     versions, classes, opt = build_request(p)
     cands, items = build_candidates(versions)
+    eligible = sum(1 for c in cands if not c.excluded)
+    if opt.num_images > eligible:
+        raise ValueError(f"asked for {opt.num_images} images, but only {eligible} "
+                         "are eligible in the selected versions")
     res = builder.build(cands, opt)
     return versions, classes, opt, cands, items, res
 
@@ -1352,6 +1369,10 @@ class Handler(BaseHTTPRequestHandler):
                 with _flag_lock:
                     _flags.clear()
                 return self._json({"ok": True})
+            if u.path == "/api/build/counts":
+                if q["v"] not in list_versions():
+                    raise FileNotFoundError(q["v"])
+                return self._json(build_counts(q["v"]))
             if u.path == "/api/build/history":
                 return self._json({"history": build_history()})
             if u.path == "/build.zip":

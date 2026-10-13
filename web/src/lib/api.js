@@ -64,6 +64,8 @@ export const folderZipUrl = (path, exclude) =>
 
 /** Run a build preview; the server logs it to the build history. */
 export const runBuild = (params) => post('/api/build', params)
+/** {total, eligible, excluded: {reason: n}} for one version. */
+export const getBuildCounts = (v) => json('/api/build/counts?' + qs({ v }))
 export const getBuildHistory = () => json('/api/build/history')
 /** The same build, as a zip: images, corrected labels, lists, data.yaml, manifest. */
 export const buildZipUrl = (params) => '/build.zip?' + qs({ p: JSON.stringify(params) })

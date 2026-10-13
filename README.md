@@ -298,6 +298,7 @@ Everything the UI does is a plain HTTP call, so scripts can use it too.
 | `GET /api/version?v=` | counts, class names, per-split class counts |
 | `GET /api/items?v=&split=&mode=&cls=&clsmode=&offset=&limit=` | images with boxes and their review flag |
 | `GET /api/stats?v=&mode=&cls=&clsmode=` | the `/api/version` counts for the images those filters select |
+| `GET /api/build/counts?v=` | `{total, eligible, excluded: {reason: n}}` — what a build may draw from |
 | `GET /api/build/history` | every build preview and download, newest first |
 | `GET /api/tree?path=` | one directory listing, with breadcrumbs |
 | `GET /api/review/meta` | statuses, whether the log is writable, proxy user |

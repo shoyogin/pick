@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
-import { buildZipUrl, getBuildHistory, getVersion, imgUrl, runBuild } from '../lib/api'
+import {
+  buildZipUrl, getBuildCounts, getBuildHistory, getVersion, imgUrl, runBuild,
+} from '../lib/api'
 import { GREY, classColor, paletteColor } from '../lib/colors'
 import { nf, splitLabel, when } from '../lib/format'
 import { useData } from '../lib/store'
@@ -28,6 +30,29 @@ const DEFAULTS = {
 
 const randomSeed = () => Math.floor(Math.random() * 1_000_000)
 
+/** What is wrong with each field, by field name. An emptied field is '' until
+ *  it is typed into again, so it is caught here rather than snapping back. */
+function validate(p, eligible) {
+  const bad = {}
+  const need = (k, ok, msg) => {
+    if (p[k] === '' || !Number.isFinite(p[k])) bad[k] = 'required'
+    else if (!ok(p[k])) bad[k] = msg
+  }
+  need('num', (v) => Number.isInteger(v) && v >= 1, 'a whole number, at least 1')
+  if (!bad.num && eligible != null && p.num > eligible) {
+    bad.num = `only ${nf(eligible)} eligible image${eligible === 1 ? '' : 's'} in the selected versions`
+  }
+  need('empty', (v) => v >= 0 && v <= 100, 'between 0 and 100')
+  need('val', (v) => v >= 0 && v < 1, 'from 0 up to, not including, 1')
+  need('repeats', (v) => Number.isInteger(v) && v >= 1, 'a whole number, at least 1')
+  need('seed', (v) => Number.isInteger(v) && v >= 0, 'a whole number, 0 or more')
+  if (p.dedup) {
+    need('hamming', (v) => Number.isInteger(v) && v >= 0 && v <= 256, 'a whole number, 0 to 256')
+    need('window', (v) => Number.isInteger(v) && v >= 1, 'a whole number, at least 1')
+  }
+  return bad
+}
+
 /** Pick a class-balanced training set from the reviewed images, see what was
  *  taken and why, and download it. Every preview lands in the build history. */
 export default function Build() {
@@ -40,8 +65,25 @@ export default function Build() {
   const [error, setError] = useState('')
   const [tab, setTab] = useState('selection')
   const [history, setHistory] = useState([])
+  const [counts, setCounts] = useState({})      // version -> {total, eligible, excluded}
 
   const set = (patch) => setParams((p) => ({ ...p, ...patch }))
+
+  // One request per version, so each count shows as soon as its scan is done.
+  useEffect(() => {
+    let stale = false
+    for (const v of all) {
+      getBuildCounts(v)
+        .then((c) => !stale && setCounts((m) => ({ ...m, [v]: c })))
+        .catch(() => {})
+    }
+    return () => { stale = true }
+  }, [all])
+
+  // Known only once every ticked version has its count.
+  const eligible = params.versions.every((v) => counts[v])
+    ? params.versions.reduce((a, v) => a + counts[v].eligible, 0) : null
+  const problems = validate(params, eligible)
 
   // Class names come from the first version; the server refuses a mix.
   const first = params.versions[0]
@@ -86,6 +128,7 @@ export default function Build() {
     <div className="flex h-full">
       <Options
         all={all} params={params} set={set} classes={classes}
+        counts={counts} eligible={eligible} problems={problems}
         busy={busy} fresh={fresh} error={error} onPreview={preview}
         zip={buildZipUrl(request)} onDownload={() => setTimeout(loadHistory, 1500)}
       />
@@ -118,7 +161,7 @@ export default function Build() {
 
 // ---------------------------------------------------------------- options
 
-function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip, onDownload }) {
+function Options({ all, params, set, classes, counts, eligible, problems, busy, fresh, error, onPreview, zip, onDownload }) {
   const toggleVersion = (v) => set({
     versions: params.versions.includes(v)
       ? params.versions.filter((x) => x !== v) : [...params.versions, v],
@@ -131,8 +174,14 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
 
   return (
     <aside className="w-72 shrink-0 overflow-y-auto border-r border-line bg-surface p-4 text-sm">
-      <Group label="Versions" hint="must share one class list">
-        <div className="max-h-40 overflow-y-auto rounded-md border border-line bg-card p-1.5">
+      <Group
+        label="Versions"
+        hint={params.versions.length
+          ? `${eligible == null ? '…' : nf(eligible)} eligible images in ${params.versions.length} version${params.versions.length === 1 ? '' : 's'} · must share one class list`
+          : 'tick at least one · must share one class list'}
+      >
+        {/* Tall enough for a grouped disk; drag the corner for more. */}
+        <div className="h-64 min-h-24 resize-y overflow-y-auto rounded-md border border-line bg-card p-1.5">
           {byGroup(all).map(([group, vs]) => (
             <div key={group}>
               {group && <div className="px-1.5 pt-1 text-[11px] text-muted">{group}</div>}
@@ -140,7 +189,8 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
                 <label key={value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-0.5 hover:bg-hover">
                   <input type="checkbox" className="size-4 accent-brand"
                          checked={params.versions.includes(value)} onChange={() => toggleVersion(value)} />
-                  {label}
+                  <span className="flex-1">{label}</span>
+                  <VersionCount c={counts[value]} />
                 </label>
               ))}
             </div>
@@ -148,8 +198,8 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
         </div>
       </Group>
 
-      <Group label="Images" hint="train and val together">
-        <Num value={params.num} min={1} step={1} onChange={(num) => set({ num })} />
+      <Group label="Images" hint="train and val together" error={problems.num}>
+        <Num bad={!!problems.num} value={params.num} min={1} step={1} onChange={(num) => set({ num })} />
       </Group>
 
       <Group
@@ -174,11 +224,11 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
       </Group>
 
       <div className="grid grid-cols-2 gap-3">
-        <Group label="Empty %" hint="negatives per split">
-          <Num value={params.empty} min={0} max={100} step={1} onChange={(empty) => set({ empty })} />
+        <Group label="Empty %" hint="negatives per split" error={problems.empty}>
+          <Num bad={!!problems.empty} value={params.empty} min={0} max={100} step={1} onChange={(empty) => set({ empty })} />
         </Group>
-        <Group label="Val fraction" hint="0 = one test list">
-          <Num value={params.val} min={0} max={0.95} step={0.05} onChange={(val) => set({ val })} />
+        <Group label="Val fraction" hint="0 = one test list" error={problems.val}>
+          <Num bad={!!problems.val} value={params.val} min={0} max={0.95} step={0.05} onChange={(val) => set({ val })} />
         </Group>
       </div>
 
@@ -194,13 +244,13 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
         </div>
       </Group>
 
-      <Group label="Max repeats" hint="oversample rare classes in train">
-        <Num value={params.repeats} min={1} step={1} onChange={(repeats) => set({ repeats })} />
+      <Group label="Max repeats" hint="oversample rare classes in train" error={problems.repeats}>
+        <Num bad={!!problems.repeats} value={params.repeats} min={1} step={1} onChange={(repeats) => set({ repeats })} />
       </Group>
 
-      <Group label="Seed">
+      <Group label="Seed" error={problems.seed}>
         <div className="flex gap-1.5">
-          <Num value={params.seed} min={0} step={1} onChange={(seed) => set({ seed })} />
+          <Num bad={!!problems.seed} value={params.seed} min={0} step={1} onChange={(seed) => set({ seed })} />
           <button onClick={() => set({ seed: randomSeed() })} title="New random seed"
                   className="rounded-md border border-rule bg-card px-2.5 hover:bg-hover">🎲</button>
         </div>
@@ -215,11 +265,11 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
         </label>
         {params.dedup && (
           <div className="mt-2 grid grid-cols-2 gap-3">
-            <Group label="Hamming" hint="bits of 256">
-              <Num value={params.hamming} min={0} max={256} step={1} onChange={(hamming) => set({ hamming })} />
+            <Group label="Hamming" hint="bits of 256" error={problems.hamming}>
+              <Num bad={!!problems.hamming} value={params.hamming} min={0} max={256} step={1} onChange={(hamming) => set({ hamming })} />
             </Group>
-            <Group label="Window" hint="kept frames compared">
-              <Num value={params.window} min={1} step={1} onChange={(window) => set({ window })} />
+            <Group label="Window" hint="kept frames compared" error={problems.window}>
+              <Num bad={!!problems.window} value={params.window} min={1} step={1} onChange={(window) => set({ window })} />
             </Group>
           </div>
         )}
@@ -227,7 +277,8 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
 
       <div className="space-y-2 border-t border-line pt-4">
         <button
-          onClick={onPreview} disabled={busy || !params.versions.length}
+          onClick={onPreview}
+          disabled={busy || !params.versions.length || Object.keys(problems).length > 0}
           className="w-full rounded-md bg-ink px-3 py-2 text-sm font-semibold text-page hover:opacity-90 disabled:opacity-40"
         >
           {busy ? 'Selecting…' : 'Preview'}
@@ -251,7 +302,19 @@ function Options({ all, params, set, classes, busy, fresh, error, onPreview, zip
   )
 }
 
-function Group({ label, hint, right, children }) {
+/** Eligible of total, with what review held back in the tooltip. */
+function VersionCount({ c }) {
+  if (!c) return <span className="text-[11px] text-muted">…</span>
+  const held = Object.entries(c.excluded).map(([why, n]) => `${nf(n)} ${why}`).join('\n')
+  return (
+    <span className="num text-[11px] text-muted"
+          title={`${nf(c.eligible)} of ${nf(c.total)} images eligible${held ? '\n' + held : ''}`}>
+      {nf(c.eligible)}{c.eligible !== c.total && <span className="opacity-60"> / {nf(c.total)}</span>}
+    </span>
+  )
+}
+
+function Group({ label, hint, error, right, children }) {
   return (
     <div className="mb-4">
       <div className="mb-1 flex items-baseline gap-2 text-xs font-medium text-ink2">
@@ -260,59 +323,104 @@ function Group({ label, hint, right, children }) {
         {right}
       </div>
       {children}
-      {hint && <p className="mt-1 text-[11px] text-muted">{hint}</p>}
+      {error ? <p className="mt-1 text-[11px] text-no">{error}</p>
+        : hint && <p className="mt-1 text-[11px] text-muted">{hint}</p>}
     </div>
   )
 }
 
-const Num = ({ value, onChange, ...rest }) => (
+/** A number field that can be emptied: '' stays '' until something valid is
+ *  typed, instead of the last value snapping back. */
+const Num = ({ value, onChange, bad, ...rest }) => (
   <input
-    type="number" value={value} {...rest}
-    onChange={(e) => e.target.value !== '' && onChange(Number(e.target.value))}
-    className="num w-full rounded-md border border-rule bg-card px-2 py-1"
+    type="number" value={value} {...rest} aria-invalid={bad || undefined}
+    onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+    className={`num w-full rounded-md border bg-card px-2 py-1 ${bad ? 'border-no' : 'border-rule'}`}
   />
 )
 
 // ---------------------------------------------------------------- selection
 
 function Selection({ view, stale }) {
-  const [show, setShow] = useState(() => new Set())
+  const [show, setShow] = useState(() => new Set())     // states
+  const [cls, setCls] = useState(() => new Set())       // classes
+  const [matchAll, setMatchAll] = useState(false)
   const [limit, setLimit] = useState(PAGE)
   const [open, setOpen] = useState(null)
-  useEffect(() => { setShow(new Set()); setLimit(PAGE) }, [view])
+  useEffect(() => { setShow(new Set()); setCls(new Set()); setLimit(PAGE) }, [view])
+  useEffect(() => { setLimit(PAGE) }, [show, cls, matchAll])
 
-  const counts = useMemo(() => {
+  const hasClass = useCallback((it) => {
+    if (!cls.size) return true
+    const have = new Set(it.boxes.map((b) => b[0]))
+    return matchAll ? [...cls].every((c) => have.has(c)) : [...cls].some((c) => have.has(c))
+  }, [cls, matchAll])
+  const hasState = useCallback((it) => !show.size || show.has(it.state), [show])
+
+  // Each row of chips counts what the *other* filter lets through, so a chip
+  // says how many images clicking it would show.
+  const stateCounts = useMemo(() => {
     const c = {}
-    for (const it of view.items) c[it.state] = (c[it.state] || 0) + 1
+    for (const it of view.items) if (hasClass(it)) c[it.state] = (c[it.state] || 0) + 1
     return c
-  }, [view])
+  }, [view, hasClass])
+  const classCounts = useMemo(() => {
+    const c = {}
+    for (const it of view.items) {
+      if (!hasState(it)) continue
+      for (const k of new Set(it.boxes.map((b) => b[0]))) c[k] = (c[k] || 0) + 1
+    }
+    return c
+  }, [view, hasState])
   const shown = useMemo(
-    () => (show.size ? view.items.filter((it) => show.has(it.state)) : view.items),
-    [view, show])
+    () => view.items.filter((it) => hasState(it) && hasClass(it)),
+    [view, hasState, hasClass])
 
-  const toggle = (k) => setShow((prev) => {
+  const flip = (setter) => (k) => setter((prev) => {
     const next = new Set(prev)
     next.has(k) ? next.delete(k) : next.add(k)
     return next
   })
+  const toggle = flip(setShow)
+  const toggleClass = flip(setCls)
+  const chip = (on) => `flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${on
+    ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2 hover:bg-hover'}`
 
   return (
     <div className={`min-h-0 flex-1 overflow-y-auto p-4 ${stale ? 'opacity-70' : ''}`}>
       <Report view={view} />
 
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
-        {STATES.filter((s) => counts[s.key]).map((s) => (
-          <button
-            key={s.key} onClick={() => toggle(s.key)} title={s.hint}
-            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${show.has(s.key)
-              ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2 hover:bg-hover'}`}
-          >
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <span className="w-14 text-xs text-muted">State</span>
+        {STATES.filter((s) => stateCounts[s.key] || show.has(s.key)).map((s) => (
+          <button key={s.key} onClick={() => toggle(s.key)} title={s.hint} className={chip(show.has(s.key))}>
             <span className="size-2.5 rounded-full" style={{ background: s.color }} />
-            {s.label} <span className="num opacity-70">{nf(counts[s.key])}</span>
+            {s.label} <span className="num opacity-70">{nf(stateCounts[s.key] || 0)}</span>
           </button>
         ))}
-        {show.size > 0 && (
-          <button onClick={() => setShow(new Set())} className="text-xs text-muted underline">show all</button>
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        <span className="w-14 text-xs text-muted">Classes</span>
+        {view.classes.map((name, i) => (classCounts[i] || cls.has(i)) && (
+          <button key={i} onClick={() => toggleClass(i)} className={chip(cls.has(i))}>
+            <span className="size-2.5 rounded-[2px]" style={{ background: classColor(i) }} />
+            {name} <span className="num opacity-70">{nf(classCounts[i] || 0)}</span>
+          </button>
+        ))}
+        {cls.size > 1 && (
+          <button onClick={() => setMatchAll((v) => !v)}
+                  title="Any: the image has at least one ticked class. All: it has every one."
+                  className={`rounded-full border px-2 py-0.5 text-[11px] ${matchAll
+                    ? 'border-ink bg-ink text-page' : 'border-rule bg-card text-ink2'}`}>
+            {matchAll ? 'all of them' : 'any of them'}
+          </button>
+        )}
+        <span className="flex-1" />
+        <span className="num text-xs text-muted">{nf(shown.length)} of {nf(view.items.length)} shown</span>
+        {(show.size > 0 || cls.size > 0) && (
+          <button onClick={() => { setShow(new Set()); setCls(new Set()) }}
+                  className="text-xs text-muted underline">clear filters</button>
         )}
       </div>
 
