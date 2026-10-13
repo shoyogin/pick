@@ -134,3 +134,14 @@ def test_counts_leave_out_review_exclusions_and_cap_the_build(server, db):
     assert status == 400 and "only 2 are eligible" in body["error"]
     assert call(server, "/api/build", {"versions": ["v1"], "num": 2, "empty": 0,
                                        "dedup": False})[0] == 200
+
+
+def test_history_keeps_the_newest_hundred_runs(server, db):
+    for seed in range(105):
+        assert call(server, "/api/build", {"versions": ["v1"], "num": 2, "empty": 0,
+                                           "dedup": False, "seed": seed})[0] == 200
+    lines = (db.REVIEW / "builds.jsonl").read_text().splitlines()
+    assert len(lines) == db.BUILD_HISTORY_MAX == 100
+    _, hist = call(server, "/api/build/history")
+    seeds = [h["params"]["seed"] for h in hist["history"]]
+    assert seeds[0] == 104 and seeds[-1] == 5          # the five oldest are gone

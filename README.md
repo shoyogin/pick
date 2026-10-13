@@ -221,7 +221,8 @@ image's version and split in its path), `train.txt` + `val.txt` + `data.yaml`, o
 image.
 
 Every preview and download goes to `builds.jsonl` in the review folder, with
-who, when, the seed and every option. **History** lists them and **Restore** puts
+who, when, the seed and every option. It keeps the newest 100 runs; older ones
+are dropped as new ones are added. **History** lists them and **Restore** puts
 a run's options back, so any build can be reproduced.
 
 ## Deployment (NUC, behind Caddy)

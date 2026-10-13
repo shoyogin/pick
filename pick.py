@@ -963,6 +963,8 @@ BUILD_DEFAULTS = {"num": 100, "empty": 10.0, "val": 0.0, "by": "instances",
 REVIEW_EXCLUDES = {"no": "marked Not OK", "deleted": "deleted",
                    "review": "correction waiting for approval"}
 _build_log_lock = threading.Lock()
+# builds.jsonl keeps the newest runs only; older ones are dropped as new ones land.
+BUILD_HISTORY_MAX = 100
 
 
 def build_request(p: dict):
@@ -1077,16 +1079,36 @@ def log_build(kind, who, versions, opt, res):
            "reviewer": (who or "anon")[:64], "params": build_params(versions, opt),
            "summary": build_summary(res)}
     line = json.dumps(rec, separators=(",", ":")) + "\n"
+    f = REVIEW / "builds.jsonl"
     with _build_log_lock:
-        fd = os.open(REVIEW / "builds.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o664)
+        fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o664)
         try:
             os.write(fd, line.encode())
         finally:
             os.close(fd)
+        trim_history(f)
     return rec
 
 
-def build_history(limit=200):
+def trim_history(f: Path, keep=BUILD_HISTORY_MAX):
+    """Drop all but the newest `keep` lines. Written aside and swapped in, so a
+    reader never sees a half-written file. Called under _build_log_lock."""
+    try:
+        lines = f.read_bytes().splitlines(keepends=True)
+    except OSError:
+        return
+    if len(lines) <= keep:
+        return
+    tmp = f.with_name(f.name + ".tmp")
+    try:
+        tmp.write_bytes(b"".join(lines[-keep:]))
+        os.chmod(tmp, 0o664)
+        os.replace(tmp, f)
+    except OSError:
+        tmp.unlink(missing_ok=True)      # keep the long file rather than lose it
+
+
+def build_history(limit=BUILD_HISTORY_MAX):
     """Newest first. A torn or foreign line is skipped, never fatal."""
     f = REVIEW / "builds.jsonl"
     out = []
