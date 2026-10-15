@@ -5,7 +5,7 @@ import {
   buildZipUrl, getBuildCounts, getBuildHistory, getVersion, imgUrl, runBuild,
 } from '../lib/api'
 import { GREY, classColor, paletteColor } from '../lib/colors'
-import { nf, splitLabel, when } from '../lib/format'
+import { nf, pct, splitLabel, when } from '../lib/format'
 import { useData } from '../lib/store'
 import { byGroup } from '../lib/versions'
 
@@ -575,6 +575,8 @@ function Report({ view }) {
       <div className={`grid gap-3 ${sides.length > 1 ? 'lg:grid-cols-2' : ''}`}>
         {sides.map((k) => {
           const s = r[k]
+          // Each class's share of what this split selected, in the report's unit.
+          const total = s.classes.reduce((a, c) => a + c.selected, 0)
           return (
             <div key={k} className="rounded-lg border border-line bg-card p-4">
               <div className="mb-2 flex items-baseline gap-2">
@@ -595,7 +597,10 @@ function Report({ view }) {
                     <th className="border-b border-rule py-1 text-left font-medium">class</th>
                     <th className="border-b border-rule py-1 text-right font-medium">available</th>
                     <th className="border-b border-rule py-1 text-right font-medium">selected ({s.unit === 'instances' ? 'boxes' : 'images'})</th>
-                    {r.val_share && <th className="border-b border-rule py-1 text-right font-medium">in val</th>}
+                    <th className="border-b border-rule py-1 text-right font-medium"
+                        title={`Share of the ${nf(total)} selected ${s.unit === 'instances' ? 'boxes' : 'images'} in ${STATE[k].label.toLowerCase()}`}>
+                      percentage
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -609,11 +614,9 @@ function Report({ view }) {
                       </td>
                       <td className="num border-b border-line py-1 text-right text-muted">{nf(c.available)}</td>
                       <td className="num border-b border-line py-1 text-right font-semibold">{nf(c.selected)}</td>
-                      {r.val_share && (
-                        <td className="num border-b border-line py-1 text-right text-muted">
-                          {r.val_share[c.name] == null ? '–' : `${Math.round(r.val_share[c.name] * 100)}%`}
-                        </td>
-                      )}
+                      <td className="num border-b border-line py-1 text-right text-muted">
+                        {pct(c.selected, total)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
