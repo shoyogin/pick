@@ -62,5 +62,13 @@ export const imgUrl = (v, split, name, thumb) =>
 export const folderZipUrl = (path, exclude) =>
   '/download?' + qs(exclude ? { path, exclude: 1 } : { path })
 
+/** Run a build preview; the server logs it to the build history. */
+export const runBuild = (params) => post('/api/build', params)
+/** {total, eligible, excluded: {reason: n}} for one version. */
+export const getBuildCounts = (v) => json('/api/build/counts?' + qs({ v }))
+export const getBuildHistory = () => json('/api/build/history')
+/** The same build, as a zip: images, corrected labels, lists, data.yaml, manifest. */
+export const buildZipUrl = (params) => '/build.zip?' + qs({ p: JSON.stringify(params) })
+
 export const fileUrl = (path) => '/file?' + qs({ path })
 export const reviewCsvUrl = (v) => '/api/review/export?' + qs({ v })

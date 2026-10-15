@@ -8,6 +8,7 @@ Review UI for YOLO dataset versions on a mounted disk.
 | **Review** | Every image with its boxes and class names: filter, mark OK or not OK, comment |
 | **Fix** | The rejected images, with their boxes editable — redraw, reclassify, send for approval |
 | **Stats** | Image / class / box counts and how the classes are distributed |
+| **Build** | Pick a class-balanced train/val set from the reviewed images and download it |
 
 React + Vite + Tailwind in [`web/`](web/), served by a stdlib-only Python server
 ([`pick.py`](pick.py)) that also exposes the API.
@@ -197,6 +198,33 @@ labels were redrawn and by whom. The dataset itself is untouched.
 If any image has never been flagged at all, the download asks first and says how
 many, rather than quietly shipping images nobody has looked at.
 
+## Building a training set
+
+The **Build** tab picks a class-balanced subset of one or more versions (they
+must share a class list) and downloads it ready to train. It runs the same steps
+as `select_balanced_dataset.py`: group consecutive frames into shots, drop
+near-duplicates inside each shot (dHash), optionally send whole shots to train or
+val, then fill each split with a share of empty images and, after that, a random
+image of whichever class is furthest behind.
+
+Images marked **OK** or never reviewed are eligible; **Not OK**, **Deleted** and
+corrections still waiting for approval never are. Labels are the reviewed ones,
+corrections included.
+
+**Preview** colours every image by what happened to it — train, val, test, not
+taken (budget reached), other classes only, near-duplicate, excluded — with the
+reason on click, above the per-split report: available vs selected per class,
+imbalance, empty images, classes that ran out, share in val. **Download** streams
+the same selection as a zip: `images/` and `labels/` per split (keeping each
+image's version and split in its path), `train.txt` + `val.txt` + `data.yaml`, or
+`test.txt` when the val fraction is 0, and `manifest.json` with every option and
+image.
+
+Every preview and download goes to `builds.jsonl` in the review folder, with
+who, when, the seed and every option. It keeps the newest 100 runs; older ones
+are dropped as new ones are added. **History** lists them and **Restore** puts
+a run's options back, so any build can be reproduced.
+
 ## Deployment (NUC, behind Caddy)
 
 `compose.yaml` runs the app with no published ports; Caddy is the sole entrypoint
@@ -270,6 +298,9 @@ Everything the UI does is a plain HTTP call, so scripts can use it too.
 | `GET /api/versions` | `{root, versions[], pillow}` |
 | `GET /api/version?v=` | counts, class names, per-split class counts |
 | `GET /api/items?v=&split=&mode=&cls=&clsmode=&offset=&limit=` | images with boxes and their review flag |
+| `GET /api/stats?v=&mode=&cls=&clsmode=` | the `/api/version` counts for the images those filters select |
+| `GET /api/build/counts?v=` | `{total, eligible, excluded: {reason: n}}` — what a build may draw from |
+| `GET /api/build/history` | every build preview and download, newest first |
 | `GET /api/tree?path=` | one directory listing, with breadcrumbs |
 | `GET /api/review/meta` | statuses, whether the log is writable, proxy user |
 | `GET /api/review/summary?v=` | `{ok, no, review, total, unflagged}` |
@@ -281,10 +312,12 @@ Everything the UI does is a plain HTTP call, so scripts can use it too.
 | `POST /api/comment` | `{v, split, image, text, reviewer}` |
 | `POST /api/labels` | `{v, split, image, boxes}` — redraw; sets the status to `review` |
 | `POST /api/labels/revert` | `{v, split, image}` — drop the redraw, back to `no` |
+| `POST /api/build` | `{versions[], classes[], num, empty, val, by, repeats, dedup, hamming, window, seed}` — every image's state plus the report; logged to history |
 | `POST /api/comment/delete` | `{v, split, image, id, reviewer}` — author only |
 | `GET /img?v=&split=&n=&t=1` | full image, or a cached thumbnail |
 | `GET /file?path=` | one file |
 | `GET /download?path=&exclude=1` | streamed zip; `exclude=1` applies the review |
+| `GET /build.zip?p=` | the build for the JSON options in `p`, as a streamed zip |
 
 `mode` is `all｜unreviewed｜ok｜no｜review｜deleted｜commented｜unlabeled｜empty`.
 `cls`

@@ -21,7 +21,7 @@ RUN groupadd -g "${DVC_GID}" dvc \
     && useradd --system --uid 1500 --gid dvc --no-create-home pick \
     && mkdir -p /var/cache/thumbs && chown pick:dvc /var/cache/thumbs
 
-COPY pick.py /app/pick.py
+COPY pick.py builder.py /app/
 COPY --from=ui /ui/dist /app/web/dist
 
 USER pick
