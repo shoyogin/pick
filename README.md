@@ -198,6 +198,12 @@ labels were redrawn and by whom. The dataset itself is untouched.
 If any image has never been flagged at all, the download asks first and says how
 many, rather than quietly shipping images nobody has looked at.
 
+Every dataset download — *Download reviewed dataset* and the Build tab's
+zip — opens a dialog offering the browser download or a `curl` command to copy
+into a terminal, for a remote machine or a download too big to leave in a tab.
+Behind the proxy the command carries `-u <your username>` and curl asks for the
+password, which is never written into the command.
+
 ## Building a training set
 
 The **Build** tab picks a class-balanced subset of one or more versions (they

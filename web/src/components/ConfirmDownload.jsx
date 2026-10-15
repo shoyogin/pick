@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { folderZipUrl, getSummary } from '../lib/api'
 import { nf } from '../lib/format'
+import DownloadDialog from './DownloadDialog'
 
 /**
  * The reviewed download, with a question in front of it: images nobody has
@@ -8,21 +9,20 @@ import { nf } from '../lib/format'
  * taken from whatever the page loaded with.
  */
 export default function ConfirmDownload({ version, className, children }) {
-  const [ask, setAsk] = useState(null)
+  const [ask, setAsk] = useState(null)        // the summary, once the dialog is open
   const [busy, setBusy] = useState(false)
-
-  const start = () => { window.location.href = folderZipUrl(version, true) }
+  const url = folderZipUrl(version, true)
+  // The server names the zip after the version's last folder.
+  const filename = `${version.split('/').pop()}-reviewed.zip`
 
   const click = async (e) => {
     e.preventDefault()
     setBusy(true)
     try {
-      const s = await getSummary(version)
-      if (s.unflagged > 0) return setAsk(s)
-      start()
+      setAsk(await getSummary(version))
     } catch {
       // A summary we cannot read is no reason to withhold the download.
-      start()
+      setAsk({})
     } finally {
       setBusy(false)
     }
@@ -30,46 +30,43 @@ export default function ConfirmDownload({ version, className, children }) {
 
   return (
     <>
-      <a href={folderZipUrl(version, true)} onClick={click} className={className}>
+      <a href={url} onClick={click} className={className}>
         {children}
       </a>
 
       {ask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4"
-             onClick={() => setAsk(null)}>
-          <div onClick={(e) => e.stopPropagation()}
-               className="w-full max-w-md rounded-xl border border-line bg-card p-5">
-            <h2 className="text-sm font-semibold">
-              {nf(ask.unflagged)} of {nf(ask.total)} images are not flagged
-            </h2>
+        <DownloadDialog
+          title={ask.unflagged > 0
+            ? `${nf(ask.unflagged)} of ${nf(ask.total)} images are not flagged`
+            : `Download ${version}, reviewed`}
+          url={url} filename={filename} onClose={() => setAsk(null)}
+        >
+          {ask.unflagged > 0 ? (
+            <>
+              <p className="mt-2 text-sm text-ink2">
+                Some of the images have not been marked OK, Not OK, Review or
+                Deleted. They will be included in the download exactly as they are
+                on disk. Download the dataset anyway?
+              </p>
+              <dl className="mt-3 grid grid-cols-5 gap-2 text-center text-xs">
+                {[['OK', ask.ok, 'text-ok'], ['Not OK', ask.no, 'text-no'],
+                  ['Review', ask.review, 'text-review'],
+                  ['Deleted', ask.deleted, 'text-no'],
+                  ['Unflagged', ask.unflagged, 'text-muted']].map(([l, n, tone]) => (
+                  <div key={l} className="rounded-md border border-line py-1.5">
+                    <dt className="text-muted">{l}</dt>
+                    <dd className={`num font-semibold ${tone}`}>{nf(n || 0)}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          ) : (
             <p className="mt-2 text-sm text-ink2">
-              Some of the images have not been marked OK, Not OK, Review or
-              Deleted. They will be included in the download exactly as they are
-              on disk. Download the dataset anyway?
+              Corrected labels in place of the originals; Not OK, Review and Deleted
+              images left out, with EXCLUDED.csv and CORRECTED.csv inside.
             </p>
-            <dl className="mt-3 grid grid-cols-5 gap-2 text-center text-xs">
-              {[['OK', ask.ok, 'text-ok'], ['Not OK', ask.no, 'text-no'],
-                ['Review', ask.review, 'text-review'],
-                ['Deleted', ask.deleted, 'text-no'],
-                ['Unflagged', ask.unflagged, 'text-muted']].map(([l, n, tone]) => (
-                <div key={l} className="rounded-md border border-line py-1.5">
-                  <dt className="text-muted">{l}</dt>
-                  <dd className={`num font-semibold ${tone}`}>{nf(n || 0)}</dd>
-                </div>
-              ))}
-            </dl>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setAsk(null)}
-                      className="rounded-md border border-rule bg-card px-3 py-1.5 text-sm hover:bg-hover">
-                Cancel
-              </button>
-              <button onClick={() => { setAsk(null); start() }}
-                      className="rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-page hover:opacity-90">
-                Download anyway
-              </button>
-            </div>
-          </div>
-        </div>
+          )}
+        </DownloadDialog>
       )}
 
       {busy && <span className="sr-only">checking review state…</span>}

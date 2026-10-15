@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BoxOverlay from '../components/BoxOverlay'
+import DownloadDialog from '../components/DownloadDialog'
 import {
   buildZipUrl, getBuildCounts, getBuildHistory, getVersion, imgUrl, runBuild,
 } from '../lib/api'
@@ -165,6 +166,7 @@ export default function Build() {
 // ---------------------------------------------------------------- options
 
 function Options({ all, params, set, classes, eligible, held, problems, busy, fresh, error, onPreview, zip, onDownload }) {
+  const [downloading, setDownloading] = useState(false)
   const toggleVersion = (v) => set({
     versions: params.versions.includes(v)
       ? params.versions.filter((x) => x !== v) : [...params.versions, v],
@@ -286,15 +288,25 @@ function Options({ all, params, set, classes, eligible, held, problems, busy, fr
         >
           {busy ? 'Selecting…' : 'Preview'}
         </button>
-        <a
-          href={fresh ? zip : undefined} onClick={fresh ? onDownload : undefined}
-          aria-disabled={!fresh}
+        <button
+          onClick={() => setDownloading(true)} disabled={!fresh}
           title={fresh ? undefined : 'Preview these options first'}
-          className={`block rounded-md border border-rule px-3 py-2 text-center text-sm ${fresh
-            ? 'bg-card hover:bg-hover' : 'pointer-events-none bg-card text-muted opacity-50'}`}
+          className="block w-full rounded-md border border-rule bg-card px-3 py-2 text-center text-sm hover:bg-hover disabled:opacity-50"
         >
           Download dataset (.zip)
-        </a>
+        </button>
+        {downloading && (
+          <DownloadDialog
+            title={`Download ${nf(params.num)} images, seed ${params.seed}`}
+            url={zip} filename={`pick-${params.num}-seed${params.seed}.zip`}
+            onStart={onDownload} onClose={() => setDownloading(false)}
+          >
+            <p className="mt-2 text-sm text-ink2">
+              The selection you previewed, rebuilt from the same seed. A terminal
+              download is logged to the history too.
+            </p>
+          </DownloadDialog>
+        )}
         <p className="text-[11px] text-muted">
           Images with their reviewed labels, train/val (or test) lists, data.yaml
           and manifest.json. Not OK, Deleted and unaccepted fixes never make it in.
