@@ -38,6 +38,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import builder
+import vlm
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 THUMB_MAX = 420
@@ -53,6 +54,7 @@ except Exception:
 ROOT = None
 REVIEW = None
 WEB = None
+VLM_ENV = None      # vlm.env: where the vision model lives; read on every use
 USER_HEADER = None   # e.g. "X-Remote-User", set by --user-header behind a proxy
 CACHE_DIR = None
 _scan_lock = threading.Lock()
@@ -93,6 +95,9 @@ POST_MAX = {
     "/api/labels": 512_000,
     "/api/labels/revert": 64_000,
     "/api/build": 64_000,
+    "/api/vlm/start": 64_000,
+    "/api/vlm/stop": 1_000,
+    "/api/vlm/ping": 1_000,
 }
 
 
@@ -1212,6 +1217,102 @@ def zip_build(writer, arc_root, files, texts):
 
 
 
+# ---------------------------------------------------------------- vlm
+
+def vlm_config():
+    """Re-read each time, so editing vlm.env needs no restart."""
+    return vlm.load_config(VLM_ENV)
+
+
+def vlm_results_path(version, split):
+    """Beside the human review logs, never inside them."""
+    return REVIEW / "vlm" / review_path(version, split).name
+
+
+def vlm_items(version, split):
+    """Every image of a split with the labels as they stand now — corrections
+    included — and its human verdict, for the job and for the results view."""
+    classes = stats_for(version)["classes"]
+    flags = load_flags(version, split)
+    out = []
+    for raw in scan(version, split):
+        it = merged_item(raw, flags.get(raw["name"]))
+        img = Path(version) / "images" / split / it["name"] if split != "." \
+            else Path(version) / "images" / it["name"]
+        out.append({"name": it["name"], "path": safe_under_root(img), "boxes": it["boxes"],
+                    "dim": it["dim"], "human": (it["flag"] or {}).get("status", "")})
+    return classes, out
+
+
+def vlm_start(body, who):
+    cfg = vlm_config()
+    if not cfg:
+        raise ValueError("no VLM configured — copy vlm.env.example to vlm.env")
+    v, sp = body.get("v"), body.get("split")
+    if not isinstance(v, str) or v not in list_versions():
+        raise FileNotFoundError("unknown version")
+    if sp not in list_splits(v):
+        raise FileNotFoundError("unknown split")
+    scope = body.get("scope", "todo")
+    classes, items = vlm_items(v, sp)
+    done = vlm.read_results(vlm_results_path(v, sp))
+    if scope == "todo":            # never checked, or the last try failed
+        items = [i for i in items if done.get(i["name"], {}).get("verdict") in (None, "error")]
+    elif scope == "unreviewed":    # no human verdict yet
+        items = [i for i in items if not i["human"]]
+    elif scope != "all":
+        raise ValueError("scope is todo, unreviewed or all")
+    limit = body.get("limit")
+    if limit not in (None, ""):
+        limit = int(limit)
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        items = items[:limit]
+    if not items:
+        raise ValueError("nothing to check with that scope")
+    return vlm.start(cfg, v, sp, [(i["name"], i["path"], i["boxes"]) for i in items],
+                     classes, vlm_results_path(v, sp), who)
+
+
+def vlm_results(version, split):
+    classes, items = vlm_items(version, split)
+    done = vlm.read_results(vlm_results_path(version, split))
+    rows, summary = [], {"checked": 0, "ok": 0, "not_ok": 0, "error": 0}
+    # Agreement on images both a person and the model have judged.
+    agree = {"ok/ok": 0, "ok/not_ok": 0, "no/ok": 0, "no/not_ok": 0}
+    for i in items:
+        r = done.get(i["name"])
+        if r:
+            summary["checked"] += 1
+            summary[r["verdict"]] = summary.get(r["verdict"], 0) + 1
+            h = {"ok": "ok", "no": "no", "deleted": "no"}.get(i["human"])
+            if h and r["verdict"] in ("ok", "not_ok"):
+                agree[f"{h}/{r['verdict']}"] += 1
+        rows.append({"name": i["name"], "boxes": i["boxes"], "dim": i["dim"],
+                     "human": i["human"], "vlm": r})
+    summary["total"] = len(items)
+    return {"classes": classes, "items": rows, "summary": summary, "agreement": agree}
+
+
+def vlm_csv(version, split):
+    done = vlm.read_results(vlm_results_path(version, split))
+    _, items = vlm_items(version, split)
+    out = io.StringIO()
+    out.write("image,human,vlm_verdict,reason,issues,model,ms,ts\n")
+    for i in items:
+        r = done.get(i["name"])
+        if not r:
+            continue
+        issues = " | ".join(f"{x['type']}" + (f" #{x['box']}" if x.get("box") else "")
+                            + (f" {x['class']}" if x.get("class") else "")
+                            + (f": {x['note']}" if x.get("note") else "")
+                            for x in r.get("issues", []))
+        out.write(",".join(csv_cell(c) for c in (
+            i["name"], i["human"], r["verdict"], r.get("reason", ""), issues,
+            r.get("model", ""), r.get("ms", ""), r.get("ts", ""))) + "\n")
+    return out.getvalue()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Pick/2.0"
     protocol_version = "HTTP/1.1"     # required for chunked download streaming
@@ -1391,6 +1492,34 @@ class Handler(BaseHTTPRequestHandler):
                 with _flag_lock:
                     _flags.clear()
                 return self._json({"ok": True})
+            if u.path == "/api/vlm/status":
+                cfg = vlm_config()
+                job = vlm.current_job()
+                return self._json({
+                    "configured": bool(cfg),
+                    "model": cfg.model if cfg else None,
+                    "server": urlparse(cfg.base_url).netloc if cfg else None,
+                    "workers": cfg.workers if cfg else None,
+                    "thinking": cfg.thinking if cfg else None,
+                    "job": job.view() if job else None})
+            if u.path == "/api/vlm/results":
+                return self._json(vlm_results(q["v"], q.get("split", ".")))
+            if u.path == "/api/vlm/report.csv":
+                return self._send(200, vlm_csv(q["v"], q.get("split", ".")).encode(),
+                                  "text/csv; charset=utf-8", {
+                    "Content-Disposition": 'attachment; filename="'
+                    f'{q["v"].split("/")[-1]}-{q.get("split", ".")}-vlm.csv"'})
+            if u.path == "/api/vlm/overlay":
+                # The picture exactly as the model is sent it.
+                cfg = vlm_config()
+                sp = q.get("split", ".")
+                classes, items = vlm_items(q["v"], sp)
+                it = next((i for i in items if i["name"] == q["n"]), None)
+                if not it:
+                    return self._send(404, b"not found", "text/plain")
+                data = vlm.overlay(it["path"], it["boxes"], classes,
+                                   cfg.max_side if cfg else 1280)
+                return self._send(200, data, "image/jpeg", {"Cache-Control": "no-cache"})
             if u.path == "/api/build/counts":
                 if q["v"] not in list_versions():
                     raise FileNotFoundError(q["v"])
@@ -1500,6 +1629,23 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
             if not isinstance(body, dict):
                 return self._json({"error": "body must be a JSON object"}, 400)
+            if u.path == "/api/vlm/start":
+                try:
+                    job = vlm_start(body, self._who(body.get("reviewer", "")))
+                except RuntimeError as e:
+                    return self._json({"error": str(e)}, 409)
+                return self._json({"job": job.view()})
+            if u.path == "/api/vlm/stop":
+                job = vlm.stop()
+                return self._json({"job": job.view() if job else None})
+            if u.path == "/api/vlm/ping":
+                cfg = vlm_config()
+                if not cfg:
+                    return self._json({"error": "no VLM configured"}, 400)
+                try:
+                    return self._json({"model": cfg.model, **vlm.ping(cfg)})
+                except vlm.VLMError as e:
+                    return self._json({"error": str(e)}, 502)
             if u.path == "/api/build":
                 versions, classes, opt, cands, items, res = run_build(body)
                 rec = log_build("preview", self._who(body.get("reviewer", "")), versions, opt, res)
@@ -1550,7 +1696,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ROOT, REVIEW, CACHE_DIR, USER_HEADER, WEB
+    global ROOT, REVIEW, CACHE_DIR, USER_HEADER, WEB, VLM_ENV
     ap = argparse.ArgumentParser(description="Pick: read-only YOLO dataset review.")
     ap.add_argument("root", help="directory holding dataset version folders")
     ap.add_argument("--host", default="0.0.0.0")
@@ -1561,6 +1707,9 @@ def main():
     ap.add_argument("--review", default=None,
                     help="where review flags are written (default: <root>/../review)")
     ap.add_argument("--cache", default=None, help="thumbnail cache dir (default: ~/.cache)")
+    ap.add_argument("--vlm-env", default=None,
+                    help="vision model settings (default: vlm.env next to this file); "
+                         "VLM_* environment variables override it")
     ap.add_argument("--web", default=None,
                     help="built React app (default: web/dist next to this file)")
     a = ap.parse_args()
@@ -1583,6 +1732,7 @@ def main():
         pass
 
     WEB = Path(a.web).resolve() if a.web else (Path(__file__).parent / "web" / "dist")
+    VLM_ENV = Path(a.vlm_env) if a.vlm_env else Path(__file__).parent / "vlm.env"
 
     print(f"root      {ROOT}")
     print(f"versions  {', '.join(list_versions()) or '(none found)'}")
@@ -1590,6 +1740,8 @@ def main():
           f"{'' if os.access(REVIEW, os.W_OK) else '   [NOT WRITABLE — flags will fail]'}")
     print(f"identity  {USER_HEADER or 'self-declared (no proxy auth)'}")
     print(f"thumbs    {'Pillow' if HAVE_PIL else 'off — pip install Pillow to speed up'}")
+    cfg = vlm_config()
+    print(f"vlm       {f'{cfg.model} at {urlparse(cfg.base_url).netloc}' if cfg else 'off — no vlm.env'}")
     print(f"ui        {WEB}"
           f"{'' if WEB.is_dir() else '   [NOT BUILT — cd web && npm run build]'}")
     print(f"serving   http://{a.host}:{a.port}")

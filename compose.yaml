@@ -13,6 +13,11 @@ services:
     # No ports: — publishing 8800 would let anyone on the VPN skip Caddy basic_auth.
     # Appended to the Dockerfile ENTRYPOINT.
     command: ["--user-header", "X-Remote-User"]
+    # The VLM endpoint, from vlm.env. Optional: without it the VLM tab says how
+    # to set it up instead of failing to start.
+    env_file:
+      - path: vlm.env
+        required: false
     volumes:
       - /srv/data/datasets:/data/datasets:ro
       - /srv/data/review:/data/review

@@ -9,6 +9,7 @@ import Build from './pages/Build'
 import Fix from './pages/Fix'
 import Review from './pages/Review'
 import Stats from './pages/Stats'
+import Vlm from './pages/Vlm'
 
 const tabs = [
   { to: '/', label: 'Files', end: true },
@@ -16,6 +17,7 @@ const tabs = [
   { to: '/fix', label: 'Fix' },
   { to: '/stats', label: 'Stats' },
   { to: '/build', label: 'Build' },
+  { to: '/vlm', label: 'VLM' },
 ]
 
 
@@ -96,6 +98,7 @@ function Shell() {
             <Route path="/fix" element={<Fix />} />
             <Route path="/stats" element={<Stats />} />
             <Route path="/build" element={<Build />} />
+            <Route path="/vlm" element={<Vlm />} />
             <Route path="*" element={<Files />} />
           </Routes>
         )}

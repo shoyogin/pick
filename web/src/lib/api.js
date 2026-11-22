@@ -70,5 +70,15 @@ export const getBuildHistory = () => json('/api/build/history')
 /** The same build, as a zip: images, corrected labels, lists, data.yaml, manifest. */
 export const buildZipUrl = (params) => '/build.zip?' + qs({ p: JSON.stringify(params) })
 
+export const getVlmStatus = () => json('/api/vlm/status')
+export const pingVlm = () => post('/api/vlm/ping', {})
+/** {v, split, scope: todo|unreviewed|all, limit?} — starts a background run. */
+export const startVlm = (body) => post('/api/vlm/start', body)
+export const stopVlm = () => post('/api/vlm/stop', {})
+export const getVlmResults = (v, split) => json('/api/vlm/results?' + qs({ v, split }))
+/** The picture exactly as the model was sent it: numbered boxes drawn in. */
+export const vlmOverlayUrl = (v, split, n) => '/api/vlm/overlay?' + qs({ v, split, n })
+export const vlmCsvUrl = (v, split) => '/api/vlm/report.csv?' + qs({ v, split })
+
 export const fileUrl = (path) => '/file?' + qs({ path })
 export const reviewCsvUrl = (v) => '/api/review/export?' + qs({ v })

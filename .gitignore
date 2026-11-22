@@ -4,5 +4,9 @@ __pycache__/
 *.pyc
 .env
 caddy.env
+vlm.env
 .pytest_cache/
 .ruff_cache/
+
+# Local Claude Code settings: personal, and can hold hosts and paths.
+.claude/settings.local.json

@@ -9,6 +9,7 @@ Review UI for YOLO dataset versions on a mounted disk.
 | **Fix** | The rejected images, with their boxes editable — redraw, reclassify, send for approval |
 | **Stats** | Image / class / box counts and how the classes are distributed |
 | **Build** | Pick a class-balanced train/val set from the reviewed images and download it |
+| **VLM** | A vision-language model's second opinion on the labels of a split, compared with the human verdicts |
 
 React + Vite + Tailwind in [`web/`](web/), served by a stdlib-only Python server
 ([`pick.py`](pick.py)) that also exposes the API.
@@ -231,6 +232,36 @@ who, when, the seed and every option. It keeps the newest 100 runs; older ones
 are dropped as new ones are added. **History** lists them and **Restore** puts
 a run's options back, so any build can be reproduced.
 
+## VLM review
+
+The **VLM** tab sends each image of a split to a vision-language model, with its
+boxes drawn on and numbered, and asks whether the labels are right: OK or not
+OK, a one-line reason, and issues by box — missing box, wrong class, loose box,
+false positive, duplicate. Corrected labels are what it sees.
+
+It is advisory. Results go to `<review>/vlm/<version>__<split>.jsonl`, beside
+the review logs and never into them, so no verdict, export or Fix queue changes.
+The tab compares the model with the people who reviewed the same images
+(agreement, and a filter for the images where they disagree), opens each image
+exactly as the model saw it, and downloads the report as CSV.
+
+Any OpenAI-compatible endpoint works — vLLM, TGI, Ollama, LM Studio. Where it
+lives is in `vlm.env`, untracked like `caddy.env`:
+
+```bash
+cp vlm.env.example vlm.env      # VLM_BASE_URL, VLM_API_KEY, VLM_MODEL
+```
+
+`docker compose` passes it to the app; `python3 pick.py` reads `vlm.env` next
+to itself, or `--vlm-env PATH`, and `VLM_*` environment variables override the
+file. Without it the tab only explains how to set it up. **Test connection**
+sends a small red square and checks the model names its colour — a text-only
+model answers, but fails that.
+
+Start with *At most 20*: one image is one request, and a run walks the split
+two at a time by default (`VLM_WORKERS`). *Not checked by the model yet* skips
+what it already did, so a stopped run picks up where it left off.
+
 ## Deployment (NUC, behind Caddy)
 
 `compose.yaml` runs the app with no published ports; Caddy is the sole entrypoint
@@ -258,6 +289,7 @@ committed and `git pull` can never overwrite a password:
 |---|---|---|
 | `.env` | `.env.example` | `BIND_ADDR`, the VPN address Caddy binds to |
 | `caddy.env` | `caddy.env.example` | one `REVIEWER_<n>=<username> <hash>` per reviewer |
+| `vlm.env` | `vlm.env.example` | the vision model's address, key and name (optional) |
 
 Leave `BIND_ADDR` out and the app listens on loopback only — a missing `.env`
 makes it unreachable rather than exposed on every interface.
@@ -307,6 +339,13 @@ Everything the UI does is a plain HTTP call, so scripts can use it too.
 | `GET /api/stats?v=&mode=&cls=&clsmode=` | the `/api/version` counts for the images those filters select |
 | `GET /api/build/counts?v=` | `{total, eligible, excluded: {reason: n}}` — what a build may draw from |
 | `GET /api/build/history` | every build preview and download, newest first |
+| `GET /api/vlm/status` | whether a model is configured, which, and the current run |
+| `GET /api/vlm/results?v=&split=` | every image with the model's latest verdict and the human one |
+| `GET /api/vlm/overlay?v=&split=&n=` | the image exactly as the model is sent it |
+| `GET /api/vlm/report.csv?v=&split=` | the model's verdicts as CSV |
+| `POST /api/vlm/start` | `{v, split, scope: todo｜unreviewed｜all, limit}` — one run at a time |
+| `POST /api/vlm/stop` | stop the current run; what it finished is kept |
+| `POST /api/vlm/ping` | one tiny image to check the model answers and sees |
 | `GET /api/tree?path=` | one directory listing, with breadcrumbs |
 | `GET /api/review/meta` | statuses, whether the log is writable, proxy user |
 | `GET /api/review/summary?v=` | `{ok, no, review, total, unflagged}` |
